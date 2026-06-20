@@ -5,7 +5,7 @@ export default async function handler(req, res) {
 
   try {
 
-    // 🔐 LOGIN
+    // LOGIN
     if (action === "login") {
       const { email, password } = req.body
 
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
         .eq('auth_user_id', data.user.id)
         .single()
 
-      return res.json({
+      return res.status(200).json({
         success: true,
         data: {
           user,

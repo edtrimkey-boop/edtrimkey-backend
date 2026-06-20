@@ -5,7 +5,7 @@ export default async function handler(req, res) {
 
   try {
 
-    // 🆕 CREATE JOB
+    // CREATE JOB
     if (action === "create") {
       const { institute_code, job_type, requester_id, meta_data } = req.body
 
@@ -33,45 +33,56 @@ export default async function handler(req, res) {
         status: 'Pending'
       }])
 
-      return res.json({ success: true, data: { job_id } })
+      return res.status(200).json({
+        success: true,
+        data: { job_id }
+      })
     }
 
-    // 📋 LIST JOBS
+    // LIST JOBS
     if (action === "list") {
       const { institute_code } = req.query
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('jobs_queue')
         .select('job_id, job_type, status, created_at')
         .eq('institute_code', institute_code)
         .order('created_at', { ascending: false })
         .limit(50)
 
-      return res.json({ success: true, data })
+      if (error) throw error
+
+      return res.status(200).json({ success: true, data })
     }
 
-    // 👨‍💻 ASSIGN
+    // ASSIGN
     if (action === "assign") {
       const { job_id, operator_id } = req.body
 
       await supabase
         .from('jobs_queue')
-        .update({ operator_id, status: 'Assigned' })
+        .update({
+          operator_id,
+          status: 'Assigned'
+        })
         .eq('job_id', job_id)
 
-      return res.json({ success: true })
+      return res.status(200).json({ success: true })
     }
 
-    // ✅ COMPLETE
+    // COMPLETE
     if (action === "complete") {
       const { job_id, file_url } = req.body
 
       await supabase
         .from('jobs_queue')
-        .update({ status: 'Completed', final_file_url: file_url })
+        .update({
+          status: 'Completed',
+          final_file_url: file_url
+        })
         .eq('job_id', job_id)
 
-      return res.json({ success: true })
+      return res.status(200).json({ success: true })
     }
 
     return res.status(400).json({ success: false, error: "Invalid action" })

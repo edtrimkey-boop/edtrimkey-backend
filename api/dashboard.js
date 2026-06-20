@@ -5,13 +5,19 @@ export default async function handler(req, res) {
 
   try {
 
-    // 👤 PROFILE
+    // PROFILE
     if (action === "profile") {
       const token = req.headers.authorization?.replace('Bearer ', '')
 
-      const { data: authData } = await supabase.auth.getUser(token)
+      if (!token) {
+        return res.status(401).json({ success: false, error: "No token" })
+      }
 
-      const { data } = await supabase
+      const { data: authData, error: authError } = await supabase.auth.getUser(token)
+
+      if (authError) throw authError
+
+      const { data, error } = await supabase
         .from('users')
         .select(`
           id,
@@ -27,10 +33,12 @@ export default async function handler(req, res) {
         .eq('auth_user_id', authData.user.id)
         .single()
 
-      return res.json({ success: true, data })
+      if (error) throw error
+
+      return res.status(200).json({ success: true, data })
     }
 
-    // 📊 STATS
+    // STATS
     if (action === "stats") {
       const { institute_code } = req.query
 
@@ -44,7 +52,7 @@ export default async function handler(req, res) {
         .select('*', { count: 'exact', head: true })
         .eq('institute_code', institute_code)
 
-      return res.json({
+      return res.status(200).json({
         success: true,
         data: { totalJobs, students }
       })
