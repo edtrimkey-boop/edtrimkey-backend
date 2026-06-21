@@ -151,46 +151,69 @@ export default async function handler(req, res) {
         break;
 
       // ==========================================
-      // JOB CREATION (G-DRIVE PIPELINE)
-      // ==========================================
-  // ==========================================
-      // JOB CREATION (G-DRIVE PIPELINE)
+      // JOB CREATION (CUSTOM IDS & NESTED FOLDERS)
       // ==========================================
       case "submitPaperJob":
-        let paperDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
-        const paperJobId = `TK-P-${Math.floor(1000 + Math.random() * 9000)}`;
+        // 1. SECURE FETCH: Get true Database UUID and Institute Details directly from DB
+        const { data: dbUser } = await supabase.from('users').select('id, institute_code, institutes(institute_name)').eq('auth_user_id', userContext.id).single();
+        if (!dbUser) throw new Error("Security Error: Account mapping invalid.");
         
-        // 1. Perform the Insert
+        const instCode = dbUser.institute_code; // e.g., 'KPS'
+        const instName = dbUser.institutes.institute_name; // e.g., 'Kalyani Public School'
+
+        // 2. GENERATE CUSTOM JOB ID (e.g., TK-KPS-0001)
+        const { data: latestJobs } = await supabase.from('jobs_queue')
+            .select('job_code').eq('institute_id', instCode).order('created_at', { ascending: false }).limit(1);
+        
+        let nextNum = 1;
+        if (latestJobs && latestJobs.length > 0) {
+            const lastCode = latestJobs[0].job_code;
+            const parts = lastCode.split('-');
+            if (!isNaN(parts[parts.length - 1])) nextNum = parseInt(parts[parts.length - 1], 10) + 1;
+        }
+        const paperJobId = `TK-${instCode}-${String(nextNum).padStart(4, '0')}`;
+
+        // 3. GENERATE FILE NAME (e.g., TK-KPS-0022_English_01.pdf)
+        let ext = payload.mimeType === "application/pdf" ? ".pdf" : "";
+        if (payload.fileName && payload.fileName.includes('.')) ext = '.' + payload.fileName.split('.').pop();
+        const finalFileName = `${paperJobId}_${payload.subject}_${payload.testNo}${ext}`;
+
+        // 4. NESTED FOLDERS: Root -> Institute Name -> Uploads_from_Teachers
+        let finalFolderId = process.env.DRIVE_ROOT_FOLDER_ID || '1KFVU84_ZqiMoK5GrkAQ4s_Wzasn6Jn6t';
+        if (payload.fileBase64) {
+            const instFolderId = await getOrCreateFolder(instName, finalFolderId);
+            finalFolderId = await getOrCreateFolder('Uploads_from_Teachers', instFolderId);
+        }
+
+        // 5. UPLOAD TO DRIVE
+        let paperDriveUrl = "";
+        if (payload.fileBase64) {
+            paperDriveUrl = await uploadToGoogleDrive(payload.fileBase64, finalFileName, payload.mimeType, finalFolderId);
+        }
+
+        // 6. DB INSERT (Using secure dbUser.id)
         const { error: dbError } = await supabase.from('jobs_queue').insert([{
             job_code: paperJobId, 
-            institute_id: payload.instCode, 
+            institute_id: instCode, 
             job_type: 'Paper',
-            requester_id: userContext.id, 
+            requester_id: dbUser.id, // 🔥 FIX: Using exact DB UUID!
             status: 'Pending', 
             raw_file_url: paperDriveUrl,
             meta_data: { 
-                class: payload.className, 
-                subject: payload.subject, 
-                test_type: payload.testType,
-                test_no: payload.testNo,
-                test_date: payload.testDate,
-                duration: payload.duration,
-                questions: payload.numQuestions,
-                full_marks: payload.fullMarks,
-                pass_marks: payload.passMarks,
+                class: payload.className, subject: payload.subject, test_type: payload.testType,
+                test_no: payload.testNo, test_date: payload.testDate, duration: payload.duration,
+                questions: payload.numQuestions, full_marks: payload.fullMarks, pass_marks: payload.passMarks,
                 teacher_name: payload.teacherName
             }
         }]);
 
-        // 2. 🔥 STRICT ERROR CHECK: If Supabase rejects it, throw an error!
-        if (dbError) {
-            console.error("SUPABASE INSERT ERROR:", dbError);
-            throw new Error("Database Error: " + dbError.message);
-        }
-
+        if (dbError) throw new Error("Database Write Failed: " + dbError.message);
         result = { success: true, jobId: paperJobId };
         break;
 
+      // ====================================================
+      // JOB CREATION  DOCUMENT (CUSTOM IDS & NESTED FOLDERS)
+      // ===================================================
       case "submitDocumentJob":
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         const docJobId = `TK-D-${Math.floor(1000 + Math.random() * 9000)}`;
