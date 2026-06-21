@@ -170,19 +170,19 @@ export default async function handler(req, res) {
         }
         break;
 
-      // ==========================================
+// ==========================================
       // JOB CREATION (ISOLATED INST COUNTER & DYNAMIC DRIVE ROUTING)
       // ==========================================
       case "submitPaperJob":
         // 1. SECURE USER FETCH: Get structural records via auth reference
-        const { data: dbUser, error: userErr } = await supabase
+        const { data: dbUser, error: submitUserErr } = await supabase
             .from('users')
             .select('id, institute_id')
             .eq('auth_user_id', userContext.id)
             .single();
             
-        if (userErr || !dbUser) {
-            console.error("🚨 USER FETCH ERROR:", userErr);
+        if (submitUserErr || !dbUser) {
+            console.error("🚨 USER FETCH ERROR:", submitUserErr);
             throw new Error("Security Error: Account mapping invalid.");
         }
 
@@ -190,14 +190,14 @@ export default async function handler(req, res) {
         const instUUID = dbUser.institute_id;
 
         // 2. SAFE INSTITUTE FETCH: Use select('*') to entirely bypass PostgreSQL column crashes
-        const { data: dbInst, error: instErr } = await supabase
+        const { data: dbInst, error: submitInstErr } = await supabase
             .from('institutes')
             .select('*')
             .eq('id', instUUID)
             .single();
 
-        if (instErr || !dbInst) {
-            console.error("🚨 INSTITUTE FETCH ERROR:", instErr);
+        if (submitInstErr || !dbInst) {
+            console.error("🚨 INSTITUTE FETCH ERROR:", submitInstErr);
             throw new Error("Security Error: Institute mapping invalid.");
         }
 
@@ -241,7 +241,7 @@ export default async function handler(req, res) {
         }
 
         // 7. RECORD PERSISTENCE (Metadata structured in transactional JSON schema)
-        const { error: dbError } = await supabase.from('jobs_queue').insert([{
+        const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
             job_code: paperJobId, 
             institute_id: instUUID, 
             job_type: 'Paper',
@@ -256,10 +256,10 @@ export default async function handler(req, res) {
             }
         }]);
 
-        if (dbError) throw new Error("Database Write Failed: " + dbError.message);
+        if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         result = { success: true, jobId: paperJobId };
         break;
-
+        
       // ====================================================
       // JOB CREATION  DOCUMENT (CUSTOM IDS & NESTED FOLDERS)
       // ===================================================
