@@ -291,6 +291,61 @@ export default async function handler(req, res) {
         deadlineDate.setHours(deadlineDate.getHours() + 48);
         const autoDeadlineTimestamp = deadlineDate.toISOString(); 
 
+        // 6.5 AUTO-ASSIGN OPERATOR ENGINE
+        let assignedOperatorId = null;
+        
+        // Fetch all operators and their profiles
+        const { data: operators, error: opErr } = await supabase
+            .from('operator_profiles')
+            .select('user_id, work_types, subjects');
+
+        if (!opErr && operators && operators.length > 0) {
+            // Filter operators based on Work Type AND Subject
+            const matchingOperators = operators.filter(op => {
+                // 1. Must match Work Type (e.g., "Paper" or "Report Card")
+                const handlesWork = Array.isArray(op.work_types) && op.work_types.includes(jobTypeStr);
+                
+                // 2. Must match Subject (If the job has a subject. Documents usually don't!)
+                const handlesSubject = payload.subject 
+                    ? (Array.isArray(op.subjects) && op.subjects.includes(payload.subject)) 
+                    : true; 
+
+                return handlesWork && handlesSubject;
+            });
+
+            // If we found matches, assign one randomly to distribute the workload!
+            if (matchingOperators.length > 0) {
+                const randomIndex = Math.floor(Math.random() * matchingOperators.length);
+                assignedOperatorId = matchingOperators[randomIndex].user_id;
+            }
+        }
+
+        // 7. RECORD PERSISTENCE
+        const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
+            job_code: universalJobId, 
+            institute_id: instUUID, 
+            job_type: jobTypeStr, 
+            requester_id: userUUID, 
+            operator_id: assignedOperatorId, // 🔥 FIX: Saves the auto-assigned Operator's ID!
+            status: 'Pending', // Keeps it pending until the operator starts it
+            raw_file_url: paperDriveUrl,
+            deadline: autoDeadlineTimestamp,
+            meta_data: { 
+                class: payload.className, 
+                exam_name: payload.examName, 
+                subject: payload.subject, 
+                test_type: payload.testType,
+                test_no: payload.testNo, 
+                test_date: payload.testDate || payload.docDate, 
+                num_students: payload.numStudents,
+                duration: payload.duration,
+                questions: payload.numQuestions, 
+                full_marks: payload.fullMarks, 
+                pass_marks: payload.passMarks,
+                teacher_name: payload.teacherName
+            }
+        }]);
+        
         // 7. RECORD PERSISTENCE
         const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
             job_code: universalJobId, // 🔥 CHANGE 1: Used to be paperJobId
