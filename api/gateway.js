@@ -218,7 +218,18 @@ export default async function handler(req, res) {
         const instCode = dbInst.institute_code || dbInst.code || "INST";
         const instName = dbInst.institute_name || "Unknown Institute";
 
-     // 3. PERFECT INSTITUTE-SPECIFIC COUNTER (Uses Regex to strictly find the last number)
+    // 3. UNIVERSAL JOB ID ENGINE (e.g., KPS-RC-26-0001)
+        const jobTypeCodes = {
+            "Paper": "PPR",
+            "Report Cards": "RC",
+            "Admit Cards": "AC",
+            "Id Card": "ID",
+            "Certificates": "CERT"
+        };
+        const typeCode = jobTypeCodes[payload.jobType || "Paper"] || "GEN";
+        const currentYearStr = new Date().getFullYear().toString().slice(-2); // "26"
+
+        // Search for the absolute latest job for this institute (Ignoring Job Type!)
         const { data: latestJobs } = await supabase
             .from('jobs_queue')
             .select('job_code')
@@ -228,18 +239,30 @@ export default async function handler(req, res) {
         
         let nextNum = 1;
         if (latestJobs && latestJobs.length > 0) {
-            const lastCode = latestJobs[0].job_code; // e.g., 'TK-KPS-0004'
-            const match = lastCode.match(/\d+$/); // Safely extracts only the trailing digits
+            const lastCode = latestJobs[0].job_code; // e.g., 'KPS-PPR-26-0001'
+            const match = lastCode.match(/\d+$/); // Grabs the '0001'
             if (match) {
                 nextNum = parseInt(match[0], 10) + 1;
             }
         }
-        const paperJobId = `TK-${instCode}-${String(nextNum).padStart(4, '0')}`;
+        
+        // Final ID Construction
+        const universalJobId = `${instCode}-${typeCode}-${currentYearStr}-${String(nextNum).padStart(4, '0')}`;
 
-        // 4. PRECISE FILE NAMING SCHEME
+        // 4. DYNAMIC FILE NAMING SCHEME
         let ext = payload.mimeType === "application/pdf" ? ".pdf" : "";
         if (payload.fileName && payload.fileName.includes('.')) ext = '.' + payload.fileName.split('.').pop();
-        const finalFileName = `${paperJobId}_${payload.subject}_${payload.testNo}${ext}`;
+        
+        let finalFileName = "";
+        const examName = payload.testType || payload.examName || "Exam"; // Fallback mapping
+
+        if (payload.jobType === "Paper" || !payload.jobType) {
+            // Paper Format: KPS-PPR-26-0001_Class 1_Annual Exam-02
+            finalFileName = `${universalJobId}_${payload.className}_${examName}-${payload.testNo}${ext}`;
+        } else {
+            // Document Format: KPS-RC-26-0001_Class 1_Annual Exam
+            finalFileName = `${universalJobId}_${payload.className}_${examName}${ext}`;
+        }
 
         // 5. NESTED SUBFOLDER ROUTING
         let finalFolderId = process.env.DRIVE_ROOT_FOLDER_ID || '1KFVU84_ZqiMoK5GrkAQ4s_Wzasn6Jn6t';
@@ -261,19 +284,21 @@ export default async function handler(req, res) {
 
         // 7. RECORD PERSISTENCE
         const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
-            job_code: paperJobId, 
+            job_code: universalJobId, // 🔥 CHANGE 1: Used to be paperJobId
             institute_id: instUUID, 
-            job_type: 'Paper',
+            job_type: payload.jobType || 'Paper', // 🔥 dynamically saves "Report Card", "Paper", etc.
             requester_id: userUUID, 
             status: 'Pending', 
             raw_file_url: paperDriveUrl,
-            deadline: autoDeadlineTimestamp, // 🔥 Inserts the perfect 48-hour timestamp!
+            deadline: autoDeadlineTimestamp,
             meta_data: { 
                 class: payload.className, 
+                exam_name: payload.examName, // Matches documents
                 subject: payload.subject, 
                 test_type: payload.testType,
                 test_no: payload.testNo, 
-                test_date: payload.testDate, 
+                test_date: payload.testDate || payload.docDate, // Maps announcement date
+                num_students: payload.numStudents, // Saves student count
                 duration: payload.duration,
                 questions: payload.numQuestions, 
                 full_marks: payload.fullMarks, 
@@ -283,7 +308,8 @@ export default async function handler(req, res) {
         }]);
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
-        result = { success: true, jobId: paperJobId };
+        
+        result = { success: true, jobId: universalJobId }; // 🔥 CHANGE 2: Used to be paperJobId
         break;
         
       // ====================================================
