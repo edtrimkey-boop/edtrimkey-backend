@@ -106,17 +106,34 @@ export default async function handler(req, res) {
             const handles = teacherProfile.subject_handles;
             formattedTeacherSubjects = Array.isArray(handles) ? handles.join(', ') : handles;
         }
-
-        let dashboardJobsQuery = supabase.from('jobs_queue').select('*').order('created_at', { ascending: false });
         
-        const isSuperAdmin = ["super admin", "system admin", "all"].includes(String(userData.role).toLowerCase());
-        if (!isSuperAdmin) dashboardJobsQuery = dashboardJobsQuery.eq('institute_id', userData.institute_id);
-        
-        const { data: jobs } = await dashboardJobsQuery;
-        const { data: notifications } = await supabase.from('notifications').select('*').contains('target_roles', [userData.role]).order('created_at', { ascending: false }).limit(30);
+        // 1. DETERMINE STRICT PRIVACY FILTERS
+        const userRole = String(userData.role).trim().toLowerCase();
+        const userUUID = userData.id;
+        const instUUID = userData.institute_id;
 
-        const safeJobs = jobs || [];
-        const safeNotifs = notifications || [];
+        let papersQuery = supabase.from('jobs_queue').select('*').eq('job_type', 'Paper');
+        let docsQuery = supabase.from('jobs_queue').select('*').not('job_type', 'eq', 'Paper');
+
+        // Apply dynamic row-level isolation based on role
+        if (userRole === 'teacher') {
+            // Teachers can ONLY see papers/documents they personally requested
+            papersQuery = papersQuery.eq('requester_id', userUUID);
+            docsQuery = docsQuery.eq('requester_id', userUUID);
+        } else if (userRole === 'admin') {
+            // Institute Admins see everything belonging to their entire institute
+            papersQuery = papersQuery.eq('institute_id', instUUID);
+            docsQuery = docsQuery.eq('institute_id', instUUID);
+        } else if (userRole === 'operator') {
+            // Operators ONLY see jobs that have been assigned to them
+            papersQuery = papersQuery.eq('operator_id', userUUID);
+            docsQuery = docsQuery.eq('operator_id', userUUID);
+        }
+        // (If role is super admin / system admin, no filters are appended, so they see global data)
+
+        // 2. EXECUTE ISOLATED FETCHES
+        const { data: papersData } = await papersQuery.order('created_at', { ascending: false });
+        const { data: docsData } = await docsQuery.order('created_at', { ascending: false });
 
         // Build Payload
       result = {
