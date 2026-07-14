@@ -3,41 +3,28 @@ import { uploadToGoogleDrive, getOrCreateFolder } from '../lib/gdrive.js';
 import { sendPushNotification } from '../lib/firebase.js';
 
 export default async function handler(req, res) {
-  // 1. DYNAMIC CORS CONFIGURATION
   const origin = req.headers.origin || '*';
   res.setHeader('Access-Control-Allow-Origin', origin); 
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
 
-  // 2. PREFLIGHT CATCHER
-  if (req.method === 'OPTIONS') {
-      return res.status(200).end();
-  }
-
-  // 3. METHOD CHECK
-  if (req.method !== 'POST') {
-      return res.status(405).json({ success: false, message: 'Only POST allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ success: false, message: 'Only POST allowed' });
 
   const { action, email, password, token, ...payload } = req.body;
   
   try {
     let result = {};
-
-    // 2. JWT SECURITY WRAPPER
     let userContext = null;
     const publicActions = ["login", "submitInstituteRegistration"];
     
     if (!publicActions.includes(action)) {
        const { data: { user }, error } = await supabase.auth.getUser(token);
-       if (error || !user) {
-           return res.status(200).json({ authFailed: true, message: "Session expired or invalid." });
-       }
+       if (error || !user) return res.status(200).json({ authFailed: true, message: "Session expired or invalid." });
        userContext = user;
     }
 
-    // 3. THE MASTER SWITCHBOARD
     switch (action) {
       
       // ==========================================
@@ -79,9 +66,8 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
 
-
       // ==========================================
-      // DASHBOARD DATA AGGREGATOR (NORMALIZED)
+      // DASHBOARD DATA AGGREGATOR (SUBSCRIPTION ARCHITECTURE)
       // ==========================================
       case "getDashboardPayload":
         const { data: userData, error: userErr } = await supabase
@@ -96,19 +82,47 @@ export default async function handler(req, res) {
         const dashUserUUID = userData.id;
         const dashInstUUID = userData.institute_id;
 
-        // 🔥 NORMALIZED DATA FETCHING
-        const { data: instFeatures } = await supabase.from('institute_features').select('*').eq('institute_id', dashInstUUID).maybeSingle();
-        const { data: instUsage } = await supabase.from('institute_usage').select('*').eq('institute_id', dashInstUUID).maybeSingle();
+        // 🔥 THE NEW ARCHITECTURE: Fetch Active Subscriptions & Features
+        const { data: activeSubs } = await supabase
+            .from('subscriptions')
+            .select('*, subscription_features(*)')
+            .eq('institute_id', dashInstUUID)
+            .eq('status', 'Active');
+
+        // Parse Subscription Features into Dashboard Data
+        let papersTotal = 0, papersLeft = 0;
+        let rcTotal = 0, rcLeft = 0;
+        let acTotal = 0, acLeft = 0;
+        let smsTotal = 0, smsRemaining = 0;
+        let attEnabled = "NO", admEnabled = "NO", feeEnabled = "NO";
+        let mainPlan = "Standard", mainStart = "N/A", mainRenew = "N/A", mainValue = null;
+
+        if (activeSubs && activeSubs.length > 0) {
+            const primarySub = activeSubs[0]; 
+            mainPlan = primarySub.plan_name || "Standard";
+            mainStart = primarySub.start_date || "N/A";
+            mainRenew = primarySub.renewal_date || "N/A";
+            mainValue = primarySub.purchase_value;
+
+            activeSubs.forEach(sub => {
+                if (sub.subscription_features) {
+                    sub.subscription_features.forEach(feat => {
+                        if (feat.feature_key === 'paper_formatter') { papersTotal += feat.total_limit; papersLeft += feat.remaining; }
+                        if (feat.feature_key === 'report_cards') { rcTotal += feat.total_limit; rcLeft += feat.remaining; }
+                        if (feat.feature_key === 'admit_cards') { acTotal += feat.total_limit; acLeft += feat.remaining; }
+                        if (feat.feature_key === 'sms') { smsTotal += feat.total_limit; smsRemaining += feat.remaining; }
+                        
+                        if (feat.feature_key === 'attendance' && feat.enabled) attEnabled = "YES";
+                        if (feat.feature_key === 'admission' && feat.enabled) admEnabled = "YES";
+                        if (feat.feature_key === 'fee_collection' && feat.enabled) feeEnabled = "YES";
+                    });
+                }
+            });
+        }
 
         const { data: teacherProfile } = await supabase.from('teacher_profiles').select('subject_handles').eq('user_id', userData.id).maybeSingle(); 
+        let formattedTeacherSubjects = teacherProfile?.subject_handles ? (Array.isArray(teacherProfile.subject_handles) ? teacherProfile.subject_handles.join(', ') : teacherProfile.subject_handles) : null;
         
-        let formattedTeacherSubjects = null;
-        if (teacherProfile && teacherProfile.subject_handles) {
-            const handles = teacherProfile.subject_handles;
-            formattedTeacherSubjects = Array.isArray(handles) ? handles.join(', ') : handles;
-        }
-        
-        // 1. DETERMINE STRICT PRIVACY FILTERS
         let papersQuery = supabase.from('jobs_queue').select('*').eq('job_type', 'Paper');
         let docsQuery = supabase.from('jobs_queue').select('*').not('job_type', 'eq', 'Paper');
 
@@ -130,7 +144,6 @@ export default async function handler(req, res) {
         const { data: notifications } = await supabase.from('notifications').select('*').contains('target_roles', [userData.role]).order('created_at', { ascending: false }).limit(30);
         const safeNotifs = notifications || [];
 
-        // Build Payload
         result = {
           profile: {
             id: userData.id,
@@ -144,50 +157,32 @@ export default async function handler(req, res) {
             logo: userData.institutes?.logo_url || userData.institutes?.logo || userData.institutes?.institute_logo || '', 
             profilePic: userData.profile_pic_url,
             toggles: {
-                attendance: (instFeatures?.attendance_toggle || userData.institutes?.attendance_toggle) ? "YES" : "NO",
-                admission: (instFeatures?.admission_toggle || userData.institutes?.admission_toggle) ? "YES" : "NO",
-                fee: (instFeatures?.fee_toggle || userData.institutes?.fee_toggle) ? "YES" : "NO"
+                attendance: attEnabled,
+                admission: admEnabled,
+                fee: feeEnabled
             },
             instDetails: {
                 ...userData.institutes,
-                plan: instFeatures?.plan_type || userData.institutes?.plan_type || "Standard",
-                startDate: instFeatures?.start_date || "N/A",
-                renewal: instFeatures?.renewal_date || "N/A",
-                purchaseValue: instFeatures?.purchase_value || null,
-                // Normalized Quotas
-                papersTotal: instUsage?.papers_total || 0,
-                papersLeft: instUsage?.papers_left || 0,
-                rcTotal: instUsage?.rc_total || 0,
-                rcLeft: instUsage?.rc_left || 0,
-                acTotal: instUsage?.ac_total || 0,
-                acLeft: instUsage?.ac_left || 0,
-                smsTotal: instUsage?.sms_total || 0,
-                smsRemaining: instUsage?.sms_remaining || 0
+                plan: mainPlan,
+                startDate: mainStart,
+                renewal: mainRenew,
+                purchaseValue: mainValue,
+                papersTotal: papersTotal,
+                papersLeft: papersLeft,
+                rcTotal: rcTotal,
+                rcLeft: rcLeft,
+                acTotal: acTotal,
+                acLeft: acLeft,
+                smsTotal: smsTotal,
+                smsRemaining: smsRemaining
             }
           },
           data: {
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
-                id: j.job_code, 
-                date: j.created_at, 
-                inst: userData.institutes?.institute_name || 'Unknown', 
-                class: j.meta_data?.class || '', 
-                subject: j.meta_data?.subject || '', 
-                exam: j.meta_data?.test_type || '', 
-                deadline: j.deadline || 'No Deadline', 
-                status: j.status, 
-                row: j.final_file_url || j.raw_file_url || '' 
+                id: j.job_code, date: j.created_at, inst: userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
             })),
             docs: safeJobs.filter(j => j.job_type !== 'Paper').map(j => ({ 
-                id: j.job_code, 
-                date: j.created_at, 
-                inst: userData.institutes?.institute_name || 'Unknown', 
-                class: j.meta_data?.class || '', 
-                type: j.job_type, 
-                exam: j.meta_data?.exam_name || '', 
-                students: j.meta_data?.num_students || 0, 
-                deadline: j.deadline || 'No Deadline',
-                status: j.status, 
-                row: j.final_file_url || j.raw_file_url || '' 
+                id: j.job_code, date: j.created_at, inst: userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
             })),
             myBilling: [], instTeachers: [], instStudents: []
           },
@@ -199,13 +194,12 @@ export default async function handler(req, res) {
           }
         };
 
-        const isSuperAdmin = ["super admin", "system admin", "all"].includes(dashRole);
-        if (isSuperAdmin) {
+        if (["super admin", "system admin", "all"].includes(dashRole)) {
             const { data: allInst } = await supabase.from('institutes').select('*');
             const { data: allOps } = await supabase.from('users').select('*, operator_profiles(*)').eq('role', 'operator');
             result.superAdmin = {
                 kpi: { totalRev: 0, activeInst: allInst?.length || 0, pendingPay: 0, docsGen: safeJobs.length },
-                institutes: (allInst || []).map(i => ({ code: i.institute_code || i.code || '', name: i.institute_name, plan: i.plan_type, status: i.is_active ? 'Active' : 'Inactive', rc: 0, ac: 0, papers: 0, toggles: { attendance: i.attendance_toggle?"YES":"NO", admission: i.admission_toggle?"YES":"NO", fee: i.fee_toggle?"YES":"NO" } })),
+                institutes: (allInst || []).map(i => ({ code: i.institute_code || i.code || '', name: i.institute_name, plan: 'Checking Subs...', status: i.is_active ? 'Active' : 'Inactive', rc: 0, ac: 0, papers: 0, toggles: { attendance: "NO", admission: "NO", fee: "NO" } })),
                 operatorList: (allOps || []).map(o => ({ name: o.full_name, role: o.role, status: o.status, pending: 0, assigned: 0, completed: 0, totalEarnings: 0, clearedEarnings: 0, pendingPayouts: 0, upi: o.operator_profiles[0]?.upi })),
                 transactions: []
             };
@@ -222,30 +216,35 @@ export default async function handler(req, res) {
         const userUUID = dbUser.id;
         const instUUID = dbUser.institute_id;
 
-        const { data: dbInst, error: submitInstErr } = await supabase.from('institutes').select('*').eq('id', instUUID).single();
-        if (submitInstErr || !dbInst) throw new Error("Security Error: Institute mapping invalid.");
+        const { data: dbInst } = await supabase.from('institutes').select('*').eq('id', instUUID).single();
+        if (!dbInst) throw new Error("Security Error: Institute mapping invalid.");
 
-        // 🔥 QUOTA CHECK (Normalized)
-        const { data: usageDataP } = await supabase.from('institute_usage').select('papers_left').eq('institute_id', instUUID).single();
-        const papersLeft = usageDataP?.papers_left || 0;
-        if (papersLeft <= 0) throw new Error("Quota Exhausted: Your institute has 0 papers remaining. Please recharge.");
+        // 🔥 THE NEW SUBSCRIPTION GATEKEEPER
+        const { data: paperFeature } = await supabase
+            .from('subscription_features')
+            .select('*, subscriptions!inner(status, payment_status, expiry_date)')
+            .eq('subscriptions.institute_id', instUUID)
+            .eq('subscriptions.status', 'Active')
+            .eq('feature_key', 'paper_formatter')
+            .single();
+
+        if (!paperFeature) throw new Error("Subscription Required: Paper Formatter module not found or active.");
+        if (paperFeature.subscriptions.payment_status !== 'Paid' && paperFeature.subscriptions.payment_status !== 'Trial') throw new Error("Billing Error: Payment is pending or failed.");
+        if (paperFeature.subscriptions.expiry_date && new Date(paperFeature.subscriptions.expiry_date) < new Date()) throw new Error("Subscription Expired: Please renew your plan.");
+        if (paperFeature.remaining <= 0) throw new Error("Quota Exhausted: You have 0 papers remaining. Please recharge.");
 
         const instCode = dbInst.institute_code || dbInst.code || "INST";
         const instName = dbInst.institute_name || "Unknown Institute";
-
         const jobTypeStr = payload.jobType || "Paper";
-        const jobTypeCodes = { "Paper": "PPR", "Report Card": "RC", "Admit Card": "AC", "ID Card": "ID", "Certificate": "CERT" };
-        const typeCode = jobTypeCodes[jobTypeStr] || "GEN";
         const currentYearStr = new Date().getFullYear().toString().slice(-2);
 
         const { data: latestJobs } = await supabase.from('jobs_queue').select('job_code').eq('institute_id', instUUID).eq('job_type', jobTypeStr).order('created_at', { ascending: false }).limit(1);
-        
         let nextNum = 1;
         if (latestJobs && latestJobs.length > 0) {
             const match = latestJobs[0].job_code.match(/\d+$/);
             if (match) nextNum = parseInt(match[0], 10) + 1;
         }
-        const universalJobId = `${instCode}-${typeCode}-${currentYearStr}-${String(nextNum).padStart(4, '0')}`;
+        const universalJobId = `${instCode}-PPR-${currentYearStr}-${String(nextNum).padStart(4, '0')}`;
 
         let ext = payload.mimeType === "application/pdf" ? ".pdf" : "";
         if (payload.fileName && payload.fileName.includes('.')) ext = '.' + payload.fileName.split('.').pop();
@@ -255,81 +254,39 @@ export default async function handler(req, res) {
         let finalFolderId = baseFolderId;
 
         if (payload.fileBase64) {
-            const examName = payload.testType || payload.examName || "Exam"; 
-            const sessionStr = payload.session || "2026-2027";
             const level2_InstName = await getOrCreateFolder(instName, baseFolderId);
-
-            if (jobTypeStr === "Paper") {
-                finalFolderId = await getOrCreateFolder('Uploads_from_Teachers', level2_InstName);
-            } else {
-                const level3_Docs = await getOrCreateFolder('Documents_Upload', level2_InstName);
-                const level4_Type = await getOrCreateFolder(jobTypeStr, level3_Docs);
-                const level5_Session = await getOrCreateFolder(sessionStr, level4_Type);
-                const level6_Class = await getOrCreateFolder(payload.className || 'Unknown Class', level5_Session);
-                finalFolderId = await getOrCreateFolder(examName, level6_Class);
-            }
+            finalFolderId = await getOrCreateFolder('Uploads_from_Teachers', level2_InstName);
         }
 
         let paperDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, finalFileName, payload.mimeType, finalFolderId) : "";
-
+        
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
-        const autoDeadlineTimestamp = deadlineDate.toISOString(); 
 
-        // AUTO ASSIGN ENGINE
         let assignedOperatorId = null;
-        const { data: operators, error: opErr } = await supabase.from('operator_profiles').select('*');
-
-        if (!opErr && operators && operators.length > 0) {
-            const matchingOperators = operators.filter(op => {
-                const safeWorkTypes = JSON.stringify(op.work_types || op.workType || "").toLowerCase();
-                const safeSubjects = JSON.stringify(op.subjects || "").toLowerCase();
-                const searchWork = (jobTypeStr || "paper").toLowerCase();
-                const handlesWork = safeWorkTypes.includes(searchWork) || safeWorkTypes.includes("paper format"); 
-                let handlesSubject = true;
-                if (payload.subject) {
-                    const searchSub = payload.subject.toLowerCase();
-                    handlesSubject = safeSubjects.includes(searchSub) || (searchSub === 'mathematics' && safeSubjects.includes('math'));
-                }
+        const { data: operators } = await supabase.from('operator_profiles').select('*');
+        if (operators && operators.length > 0) {
+            const matchingOps = operators.filter(op => {
+                const safeWork = JSON.stringify(op.work_types || op.workType || "").toLowerCase();
+                const safeSubj = JSON.stringify(op.subjects || "").toLowerCase();
+                const handlesWork = safeWork.includes('paper format') || safeWork.includes('paper'); 
+                const handlesSubject = payload.subject ? (safeSubj.includes(payload.subject.toLowerCase()) || (payload.subject.toLowerCase() === 'mathematics' && safeSubj.includes('math'))) : true;
                 const isActive = (!op.status || op.status === "Active" || op.status === "Connected");
                 return handlesWork && handlesSubject && isActive;
             });
-
-            if (matchingOperators.length > 0) {
-                const randomIndex = Math.floor(Math.random() * matchingOperators.length);
-                assignedOperatorId = matchingOperators[randomIndex].user_id || matchingOperators[randomIndex].id;
-            }
+            if (matchingOps.length > 0) assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].user_id;
         }
 
         const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
-            job_code: universalJobId, 
-            institute_id: instUUID, 
-            job_type: jobTypeStr, 
-            requester_id: userUUID, 
-            operator_id: assignedOperatorId,
-            status: 'Pending',
-            raw_file_url: paperDriveUrl,
-            deadline: autoDeadlineTimestamp,
-            meta_data: { 
-                class: payload.className, 
-                exam_name: payload.examName, 
-                subject: payload.subject, 
-                test_type: payload.testType,
-                test_no: payload.testNo, 
-                test_date: payload.testDate || payload.docDate, 
-                num_students: payload.numStudents,
-                duration: payload.duration,
-                questions: payload.numQuestions, 
-                full_marks: payload.fullMarks, 
-                pass_marks: payload.passMarks,
-                teacher_name: payload.teacherName
-            }
+            job_code: universalJobId, institute_id: instUUID, job_type: jobTypeStr, requester_id: userUUID, operator_id: assignedOperatorId,
+            status: 'Pending', raw_file_url: paperDriveUrl, deadline: deadlineDate.toISOString(),
+            meta_data: { class: payload.className, exam_name: payload.examName, subject: payload.subject, test_type: payload.testType, test_no: payload.testNo, test_date: payload.testDate || payload.docDate, num_students: payload.numStudents, duration: payload.duration, questions: payload.numQuestions, full_marks: payload.fullMarks, pass_marks: payload.passMarks, teacher_name: payload.teacherName }
         }]);
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         
-        // 🔥 QUOTA DEDUCTION (Normalized)
-        await supabase.from('institute_usage').update({ papers_left: papersLeft - 1 }).eq('institute_id', instUUID);
+        // 🔥 THE NEW LEDGER DEDUCTION
+        await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
         
         result = { success: true, jobId: universalJobId };
         break;
@@ -340,13 +297,19 @@ export default async function handler(req, res) {
       case "submitDocumentJob":
         const { data: docUser } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         
-        // 🔥 QUOTA CHECK (Normalized)
-        const { data: usageDataD } = await supabase.from('institute_usage').select('*').eq('institute_id', docUser.institute_id).single();
-        let rcLeft = usageDataD?.rc_left || 0;
-        let acLeft = usageDataD?.ac_left || 0;
+        // 🔥 THE NEW SUBSCRIPTION GATEKEEPER
+        const featureTarget = payload.docType === 'Report Card' ? 'report_cards' : 'admit_cards';
+        const { data: docFeature } = await supabase
+            .from('subscription_features')
+            .select('*, subscriptions!inner(status, payment_status, expiry_date)')
+            .eq('subscriptions.institute_id', docUser.institute_id)
+            .eq('subscriptions.status', 'Active')
+            .eq('feature_key', featureTarget)
+            .single();
 
-        if (payload.docType === 'Report Card' && rcLeft <= 0) throw new Error("Report Card quota exhausted! Please recharge.");
-        if (payload.docType === 'Admit Card' && acLeft <= 0) throw new Error("Admit Card quota exhausted! Please recharge.");
+        if (!docFeature) throw new Error(`Subscription Required: ${payload.docType} module not found or active.`);
+        if (docFeature.subscriptions.payment_status !== 'Paid' && docFeature.subscriptions.payment_status !== 'Trial') throw new Error("Billing Error: Payment is pending or failed.");
+        if (docFeature.remaining <= 0) throw new Error(`${payload.docType} quota exhausted! Please recharge.`);
 
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         const docJobId = `TK-D-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -357,12 +320,8 @@ export default async function handler(req, res) {
             meta_data: { class: payload.className, exam_name: payload.examName, num_students: payload.numStudents }
         }]);
 
-        // 🔥 QUOTA DEDUCTION (Normalized)
-        if (payload.docType === 'Report Card') {
-            await supabase.from('institute_usage').update({ rc_left: rcLeft - 1 }).eq('institute_id', docUser.institute_id);
-        } else if (payload.docType === 'Admit Card') {
-            await supabase.from('institute_usage').update({ ac_left: acLeft - 1 }).eq('institute_id', docUser.institute_id);
-        }
+        // 🔥 THE NEW LEDGER DEDUCTION
+        await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
         result = { success: true, jobId: docJobId };
         break;
@@ -374,9 +333,7 @@ export default async function handler(req, res) {
         const { data: jobData, error: jobErr } = await supabase.from('jobs_queue').select('meta_data, status').eq('job_code', payload.jobId).single();
         if (jobErr || !jobData) throw new Error("Security Error: Job not found.");
 
-        if (jobData.status !== 'Pending' && jobData.status !== 'Transmitted') {
-            throw new Error("Too late! The operator has already started formatting this job.");
-        }
+        if (jobData.status !== 'Pending' && jobData.status !== 'Transmitted') throw new Error("Too late! The operator has already started formatting this job.");
 
         let mergedMetaData = jobData.meta_data || {};
         mergedMetaData.note = payload.note;
@@ -391,18 +348,35 @@ export default async function handler(req, res) {
       // REGISTRATIONS & MANAGEMENT
       // ==========================================
       case "submitInstituteRegistration":
-        await supabase.from('institutes').insert([{
-            code: payload.instCode, institute_name: payload.instName, plan_type: payload.planType,
-            logo_url: payload.logoUrl, is_active: true, attendance_toggle: payload.attendanceToggle === "YES",
-            admission_toggle: payload.admissionToggle === "YES", fee_toggle: payload.feeToggle === "YES"
-        }]);
+        // 1. Create Institute
+        const { data: newInst } = await supabase.from('institutes').insert([{
+            code: payload.instCode, institute_name: payload.instName, is_active: true
+        }]).select().single();
 
+        // 2. Create Auth & User mapping
         const { data: instAuth } = await supabase.auth.admin.createUser({ email: payload.adminEmail, password: "TKadmin123", email_confirm: true });
         await supabase.from('users').insert([{
             auth_user_id: instAuth.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
-            role: 'admin', institute_code: payload.instCode, status: 'Active'
+            role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, status: 'Active'
         }]);
-        result = { success: true, message: "Institute & Admin Account Registered." };
+
+        // 3. Create initial Subscription & Features based on their selection
+        const { data: initialSub } = await supabase.from('subscriptions').insert([{
+            institute_id: newInst.id, subscription_type: "Complete ERP", plan_name: payload.planType,
+            billing_cycle: "Yearly", status: "Active", payment_status: "Trial",
+            start_date: new Date().toISOString(),
+            purchase_value: 0
+        }]).select().single();
+
+        await supabase.from('subscription_features').insert([
+            { subscription_id: initialSub.id, feature_key: 'paper_formatter', enabled: true, total_limit: payload.papersTotal, remaining: payload.papersTotal },
+            { subscription_id: initialSub.id, feature_key: 'sms', enabled: true, total_limit: payload.smsTotal, remaining: payload.smsTotal },
+            { subscription_id: initialSub.id, feature_key: 'attendance', enabled: payload.attendanceToggle === "YES" },
+            { subscription_id: initialSub.id, feature_key: 'admission', enabled: payload.admissionToggle === "YES" },
+            { subscription_id: initialSub.id, feature_key: 'fee_collection', enabled: payload.feeToggle === "YES" }
+        ]);
+
+        result = { success: true, message: "Institute, User, and Initial Subscription Registered." };
         break;
 
       case "submitTeacherRegistration":
@@ -448,16 +422,25 @@ export default async function handler(req, res) {
         result = { success: true, message: `Job officially assigned.` };
         break;
 
-      case "processOperatorPayout":
-        result = { success: true, message: "Payout marked as settled." };
-        break;
-
       case "toggleInstituteApp":
-        const tUpdate = {};
-        if(payload.appType === 'attendance') tUpdate.attendance_toggle = (payload.stateStr === 'YES');
-        if(payload.appType === 'admission') tUpdate.admission_toggle = (payload.stateStr === 'YES');
-        if(payload.appType === 'fee') tUpdate.fee_toggle = (payload.stateStr === 'YES');
-        await supabase.from('institutes').update(tUpdate).eq('code', payload.instCode);
+        const { data: instData } = await supabase.from('institutes').select('id').eq('code', payload.instCode).single();
+        
+        // Find mapping
+        const featureKeyMap = { 'attendance': 'attendance', 'admission': 'admission', 'fee': 'fee_collection' };
+        const fKey = featureKeyMap[payload.appType];
+        
+        // Find active feature
+        const { data: toggleFeat } = await supabase
+            .from('subscription_features')
+            .select('*, subscriptions!inner(institute_id, status)')
+            .eq('subscriptions.institute_id', instData.id)
+            .eq('subscriptions.status', 'Active')
+            .eq('feature_key', fKey)
+            .single();
+
+        if (!toggleFeat) throw new Error("Module not found in active subscriptions.");
+        
+        await supabase.from('subscription_features').update({ enabled: payload.stateStr === 'YES' }).eq('id', toggleFeat.id);
         result = { success: true };
         break;
 
@@ -479,17 +462,12 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
 
-      // ==========================================
-      // UTILS
-      // ==========================================
       case "createPaymentLink":
         result = { success: true, refId: `TXN-${Date.now()}`, amount: payload.amount };
         break;
 
       case "sendNotification":
-        await supabase.from('notifications').insert([{
-            sender_id: userContext.id, target_roles: [payload.targetRaw], title: payload.title, message: payload.msg
-        }]);
+        await supabase.from('notifications').insert([{ sender_id: userContext.id, target_roles: [payload.targetRaw], title: payload.title, message: payload.msg }]);
         result = { success: true, message: "Broadcast sent." };
         break;
 
@@ -509,7 +487,6 @@ export default async function handler(req, res) {
         const { data: jobInfo } = await supabase.from('jobs_queue').select('meta_data').eq('job_code', payload.jobId).single();
         let newMeta = jobInfo?.meta_data || {};
         newMeta.latest_correction_note = payload.note;
-        
         await supabase.from('jobs_queue').update({ status: 'Pending Revision', meta_data: newMeta }).eq('job_code', payload.jobId);
         result = { success: true };
         break;
