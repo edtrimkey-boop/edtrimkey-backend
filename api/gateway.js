@@ -240,7 +240,13 @@ export default async function handler(req, res) {
 
         const instCode = dbInst.institute_code || dbInst.code || "INST";
         const instName = dbInst.institute_name || "Unknown Institute";
+// 2.5 QUOTA CHECK ENGINE (PAPER)
+        const papersLeft = dbInst.papers_left || 0;
+        if (papersLeft <= 0) {
+             throw new Error("Quota Exhausted: Your institute has 0 papers remaining. Please recharge.");
+        }
 
+        
    // 3. UNIVERSAL JOB ID ENGINE (WITH INDEPENDENT SEQUENCES)
         const jobTypeStr = payload.jobType || "Paper"; // Ensures papers get categorized safely
         const jobTypeCodes = {
@@ -387,22 +393,45 @@ export default async function handler(req, res) {
         }]);
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
+      
+        // 🔥 8. DEDUCT THE QUOTA
+        await supabase.from('institutes').update({ papers_left: papersLeft - 1 }).eq('id', instUUID);
         
-        result = { success: true, jobId: universalJobId }; // 🔥 CHANGE 2: Used to be paperJobId
+        result = { success: true, jobId: universalJobId };
         break;
         
       // ====================================================
       // JOB CREATION  DOCUMENT (CUSTOM IDS & NESTED FOLDERS)
       // ===================================================
       case "submitDocumentJob":
+        // 1. Fetch User & Institute for Quota Checking
+        const { data: docUser } = await supabase.from('users').select('institute_id').eq('auth_user_id', userContext.id).single();
+        const { data: docInst } = await supabase.from('institutes').select('*').eq('id', docUser.institute_id).single();
+
+        // 2. Quota Check Engine
+        let rcLeft = docInst.rc_left || 0;
+        let acLeft = docInst.ac_left || 0;
+
+        if (payload.docType === 'Report Card' && rcLeft <= 0) throw new Error("Report Card quota exhausted! Please recharge.");
+        if (payload.docType === 'Admit Card' && acLeft <= 0) throw new Error("Admit Card quota exhausted! Please recharge.");
+
+        // 3. Upload & Insert
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         const docJobId = `TK-D-${Math.floor(1000 + Math.random() * 9000)}`;
         
         await supabase.from('jobs_queue').insert([{
-            job_code: docJobId, institute_id: payload.instCode, job_type: payload.docType,
-            requester_id: userContext.id, status: 'Pending', raw_file_url: docDriveUrl,
+            job_code: docJobId, institute_id: docUser.institute_id, job_type: payload.docType,
+            requester_id: docUser.id, status: 'Pending', raw_file_url: docDriveUrl,
             meta_data: { class: payload.className, exam_name: payload.examName, num_students: payload.numStudents }
         }]);
+
+        // 4. Deduct Quota
+        if (payload.docType === 'Report Card') {
+            await supabase.from('institutes').update({ rc_left: rcLeft - 1 }).eq('id', docUser.institute_id);
+        } else if (payload.docType === 'Admit Card') {
+            await supabase.from('institutes').update({ ac_left: acLeft - 1 }).eq('id', docUser.institute_id);
+        }
+
         result = { success: true, jobId: docJobId };
         break;
 
@@ -535,7 +564,39 @@ export default async function handler(req, res) {
         await supabase.from('jobs_queue').update({ status: 'Pending Revision', meta_data: newMeta }).eq('job_code', payload.jobId);
         result = { success: true };
         break;
+// ==========================================
+      // OPERATIONAL REVISIONS
+      // ==========================================
+      case "appendJobNote":
+        // 1. Fetch the exact job
+        const { data: jobData, error: jobErr } = await supabase
+            .from('jobs_queue')
+            .select('meta_data, status')
+            .eq('job_code', payload.jobId)
+            .single();
 
+        if (jobErr || !jobData) throw new Error("Security Error: Job not found.");
+
+        // 2. The Status Guard: Block if the operator has already started
+        if (jobData.status !== 'Pending' && jobData.status !== 'Transmitted') {
+            throw new Error("Too late! The operator has already started formatting this job.");
+        }
+
+        // 3. The JSON Merge: Safely inject the note without deleting other metadata
+        let mergedMetaData = jobData.meta_data || {};
+        mergedMetaData.note = payload.note;
+
+        // 4. Save back to the database
+        const { error: noteUpdateErr } = await supabase
+            .from('jobs_queue')
+            .update({ meta_data: mergedMetaData })
+            .eq('job_code', payload.jobId);
+
+        if (noteUpdateErr) throw new Error("Database failed to attach the note.");
+
+        result = { success: true, message: "Note securely attached." };
+        break;
+        
       default:
         throw new Error("Invalid API Action requested: " + action);
     }
