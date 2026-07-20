@@ -144,6 +144,13 @@ export default async function handler(req, res) {
         const { data: notifications } = await supabase.from('notifications').select('*').contains('target_roles', [userData.role]).order('created_at', { ascending: false }).limit(30);
         const safeNotifs = notifications || [];
 
+// 🔥 THE APP BUTTON GENERATOR
+        let generatedApps = [];
+        // Replace the placeholder URLs below with your actual deployed Vercel app links!
+        if (attEnabled === "YES") generatedApps.push({ name: "Attendance App", url: "https://your-attendance-app.vercel.app", targetRole: "all" });
+        if (admEnabled === "YES") generatedApps.push({ name: "Admission System", url: "https://your-admission-app.vercel.app", targetRole: "all" });
+        if (feeEnabled === "YES") generatedApps.push({ name: "Fee Collection", url: "https://your-fee-app.vercel.app", targetRole: "admin" });
+
         result = {
           profile: {
             id: userData.id,
@@ -161,6 +168,8 @@ export default async function handler(req, res) {
                 admission: admEnabled,
                 fee: feeEnabled
             },
+            // 🔥 THE FIX: Injecting the apps into the dashboard payload so the frontend draws them!
+            dynamicApps: generatedApps,
             instDetails: {
                 ...userData.institutes,
                 plan: mainPlan,
@@ -177,6 +186,7 @@ export default async function handler(req, res) {
                 smsRemaining: smsRemaining
             }
           },
+          // ... (keep data, notifications, and stats objects exactly the same as before)
           data: {
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
                 id: j.job_code, date: j.created_at, inst: userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
@@ -335,10 +345,11 @@ export default async function handler(req, res) {
 
         if (jobData.status !== 'Pending' && jobData.status !== 'Transmitted') throw new Error("Too late! The operator has already started formatting this job.");
 
-        let mergedMetaData = jobData.meta_data || {};
-        mergedMetaData.note = payload.note;
+        // 🔥 THE FIX: Strict JSON handling to force a clean database overwrite
+        let currentMeta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
+        let updatedMeta = { ...currentMeta, note: payload.note };
 
-        const { error: noteUpdateErr } = await supabase.from('jobs_queue').update({ meta_data: mergedMetaData }).eq('job_code', payload.jobId);
+        const { error: noteUpdateErr } = await supabase.from('jobs_queue').update({ meta_data: updatedMeta }).eq('job_code', payload.jobId);
         if (noteUpdateErr) throw new Error("Database failed to attach the note.");
 
         result = { success: true, message: "Note securely attached." };
