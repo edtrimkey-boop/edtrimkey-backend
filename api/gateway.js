@@ -147,9 +147,9 @@ export default async function handler(req, res) {
 // 🔥 THE APP BUTTON GENERATOR
         let generatedApps = [];
         // Replace the placeholder URLs below with your actual deployed Vercel app links!
-        if (attEnabled === "YES") generatedApps.push({ name: "Attendance App", url: "https://your-attendance-app.vercel.app", targetRole: "all" });
-        if (admEnabled === "YES") generatedApps.push({ name: "Admission System", url: "https://your-admission-app.vercel.app", targetRole: "all" });
-        if (feeEnabled === "YES") generatedApps.push({ name: "Fee Collection", url: "https://your-fee-app.vercel.app", targetRole: "admin" });
+        if (attEnabled === "YES") generatedApps.push({ name: "Attendance App", url: "https://script.google.com/macros/s/AKfycbxWrJ75j__w2-hjxvoQGHvM5ztFMzod6RUxAputcyZGlESuhaPWZAJbk-gQnXhCZNSL/exec", targetRole: "all" });
+        if (admEnabled === "YES") generatedApps.push({ name: "Admission System", url: "https://script.google.com/macros/s/AKfycbyhSh64AGV-oFrGZL25mWKOhjO1vn7ID_FZ0kcwokk3FuAzwQnygeHKVnwGlRi4DuZRhQ/exec", targetRole: "all" });
+        if (feeEnabled === "YES") generatedApps.push({ name: "Fee Collection", url: "https://script.google.com/macros/s/AKfycbxWrJ75j__w2-hjxvoQGHvM5ztFMzod6RUxAputcyZGlESuhaPWZAJbk-gQnXhCZNSL/exec", targetRole: "admin" });
 
         result = {
           profile: {
