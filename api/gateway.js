@@ -335,6 +335,9 @@ export default async function handler(req, res) {
         const docJobId = `${docPrefix}${String(nextDocNum).padStart(4, '0')}`;
 
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
+
+        const deadlineDate = new Date();
+        deadlineDate.setHours(deadlineDate.getHours() + 48);
         
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, 
