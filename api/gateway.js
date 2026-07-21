@@ -345,7 +345,8 @@ export default async function handler(req, res) {
             job_type: documentTypeStr, // 🔥 THE FIX: Correct job type saved to database
             requester_id: docUserObj.id, 
             status: 'Pending', 
-            raw_file_url: docDriveUrl,
+            raw_file_url: docDriveUrl
+            deadline: deadlineDate.toISOString(),
             meta_data: { 
                 class: payload.className ? payload.className.toUpperCase() : "", 
                 exam_name: payload.examName ? payload.examName.toUpperCase() : "", 
