@@ -184,7 +184,7 @@ export default async function handler(req, res) {
         }
         break;
 
-      // ==========================================
+     // ==========================================
       // JOB CREATION - PAPERS
       // ==========================================
       case "submitPaperJob":
@@ -206,27 +206,28 @@ export default async function handler(req, res) {
         if (paperFeature.subscriptions.expiry_date && new Date(paperFeature.subscriptions.expiry_date) < new Date()) throw new Error("Subscription Expired.");
         if (paperFeature.remaining <= 0) throw new Error("Quota Exhausted: You have 0 papers remaining.");
 
+        const instCode = instRes.data.institute_code || instRes.data.code || "INST";
         const jobTypeStr = payload.jobType || "Paper";
         const currentYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // 🔥 BULLETPROOF HIGH-SPEED ID GENERATOR
-        const { data: existingJobs } = await supabase.from('jobs_queue').select('job_code').eq('institute_id', instUUID).eq('job_type', jobTypeStr);
+        // 🔥 BULLETPROOF HIGH-SPEED ID GENERATOR (GLOBALLY AVOIDS DUPLICATES)
+        const idPrefix = `${instCode}-PPR-${currentYearStr}-`;
+        const { data: existingJobs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${idPrefix}%`);
+        
         let nextNum = 1;
         if (existingJobs && existingJobs.length > 0) {
             let maxId = 0;
             for(let i = 0; i < existingJobs.length; i++) {
                 if(!existingJobs[i].job_code) continue;
-                const match = existingJobs[i].job_code.match(/\d+$/);
-                if (match) {
-                    const num = parseInt(match[0], 10);
-                    if (num > maxId) maxId = num;
-                }
+                const parts = existingJobs[i].job_code.split('-');
+                const lastPart = parts[parts.length - 1];
+                const num = parseInt(lastPart, 10);
+                if (!isNaN(num) && num > maxId) maxId = num;
             }
             nextNum = maxId + 1;
         }
         
-        const instCode = instRes.data.institute_code || instRes.data.code || "INST";
-        const universalJobId = `${instCode}-PPR-${currentYearStr}-${String(nextNum).padStart(4, '0')}`;
+        const universalJobId = `${idPrefix}${String(nextNum).padStart(4, '0')}`;
 
         let ext = payload.mimeType === "application/pdf" ? ".pdf" : "";
         if (payload.fileName && payload.fileName.includes('.')) ext = '.' + payload.fileName.split('.').pop();
@@ -262,7 +263,20 @@ export default async function handler(req, res) {
         const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
             job_code: universalJobId, institute_id: instUUID, job_type: jobTypeStr, requester_id: dbUser.id, operator_id: assignedOperatorId,
             status: 'Pending', raw_file_url: paperDriveUrl, deadline: deadlineDate.toISOString(),
-            meta_data: { class: payload.className, exam_name: payload.examName, subject: payload.subject, test_type: payload.testType, test_no: payload.testNo, test_date: payload.testDate || payload.docDate, num_students: payload.numStudents, duration: payload.duration, questions: payload.numQuestions, full_marks: payload.fullMarks, pass_marks: payload.passMarks, teacher_name: payload.teacherName }
+            meta_data: { 
+                class: payload.className ? payload.className.toUpperCase() : "", 
+                exam_name: payload.examName ? payload.examName.toUpperCase() : "", 
+                subject: payload.subject ? payload.subject.toUpperCase() : "", 
+                test_type: payload.testType, 
+                test_no: payload.testNo, 
+                test_date: payload.testDate || payload.docDate, 
+                num_students: payload.numStudents, 
+                duration: payload.duration, 
+                questions: payload.numQuestions, 
+                full_marks: payload.fullMarks, 
+                pass_marks: payload.passMarks, 
+                teacher_name: payload.teacherName ? payload.teacherName.toUpperCase() : "" 
+            }
         }]);
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
@@ -295,29 +309,34 @@ export default async function handler(req, res) {
         const docTypeCode = jobTypeCodes[payload.docType] || "DOC";
         const currentDocYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // 🔥 BULLETPROOF HIGH-SPEED ID GENERATOR (DOCS)
-        const { data: existingDocs } = await supabase.from('jobs_queue').select('job_code').eq('institute_id', docInstUUID).eq('job_type', payload.docType);
+        // 🔥 BULLETPROOF HIGH-SPEED ID GENERATOR FOR DOCUMENTS
+        const docPrefix = `${docInstCode}-${docTypeCode}-${currentDocYearStr}-`;
+        const { data: existingDocs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${docPrefix}%`);
+        
         let nextDocNum = 1;
         if (existingDocs && existingDocs.length > 0) {
             let maxDocId = 0;
             for(let i = 0; i < existingDocs.length; i++) {
                 if(!existingDocs[i].job_code) continue;
-                const match = existingDocs[i].job_code.match(/\d+$/);
-                if (match) {
-                    const num = parseInt(match[0], 10);
-                    if (num > maxDocId) maxDocId = num;
-                }
+                const parts = existingDocs[i].job_code.split('-');
+                const lastPart = parts[parts.length - 1];
+                const num = parseInt(lastPart, 10);
+                if (!isNaN(num) && num > maxDocId) maxDocId = num;
             }
             nextDocNum = maxDocId + 1;
         }
 
-        const docJobId = `${docInstCode}-${docTypeCode}-${currentDocYearStr}-${String(nextDocNum).padStart(4, '0')}`;
+        const docJobId = `${docPrefix}${String(nextDocNum).padStart(4, '0')}`;
 
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, institute_id: docInstUUID, job_type: payload.docType, requester_id: docUserObj.id, status: 'Pending', raw_file_url: docDriveUrl,
-            meta_data: { class: payload.className, exam_name: payload.examName, num_students: payload.numStudents }
+            meta_data: { 
+                class: payload.className ? payload.className.toUpperCase() : "", 
+                exam_name: payload.examName ? payload.examName.toUpperCase() : "", 
+                num_students: payload.numStudents 
+            }
         }]);
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
