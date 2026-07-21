@@ -334,19 +334,20 @@ export default async function handler(req, res) {
 
         const docJobId = `${docPrefix}${String(nextDocNum).padStart(4, '0')}`;
 
-        let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
-
+        // 🔥 Generate the 48-hour deadline timestamp just like Papers
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
+
+        let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, 
             institute_id: docInstUUID, 
-            job_type: documentTypeStr, // 🔥 THE FIX: Correct job type saved to database
+            job_type: documentTypeStr, 
             requester_id: docUserObj.id, 
             status: 'Pending', 
-            raw_file_url: docDriveUrl
-            deadline: deadlineDate.toISOString(),
+            raw_file_url: docDriveUrl,
+            deadline: deadlineDate.toISOString(), // 🔥 Added deadline here!
             meta_data: { 
                 class: payload.className ? payload.className.toUpperCase() : "", 
                 exam_name: payload.examName ? payload.examName.toUpperCase() : "", 
