@@ -229,7 +229,6 @@ export default async function handler(req, res) {
         const { data: dbInst } = await supabase.from('institutes').select('*').eq('id', instUUID).single();
         if (!dbInst) throw new Error("Security Error: Institute mapping invalid.");
 
-        // 🔥 THE NEW SUBSCRIPTION GATEKEEPER
         const { data: paperFeature } = await supabase
             .from('subscription_features')
             .select('*, subscriptions!inner(status, payment_status, expiry_date)')
@@ -248,9 +247,16 @@ export default async function handler(req, res) {
         const jobTypeStr = payload.jobType || "Paper";
         const currentYearStr = new Date().getFullYear().toString().slice(-2);
 
-        const { data: latestJobs } = await supabase.from('jobs_queue').select('job_code').eq('institute_id', instUUID).eq('job_type', jobTypeStr).order('created_at', { ascending: false }).limit(1);
+        // 🔥 THE FIX: Sort by job_code descending to guarantee we fetch the highest sequence number
+        const { data: latestJobs } = await supabase.from('jobs_queue')
+            .select('job_code')
+            .eq('institute_id', instUUID)
+            .eq('job_type', jobTypeStr)
+            .order('job_code', { ascending: false })
+            .limit(1);
+            
         let nextNum = 1;
-        if (latestJobs && latestJobs.length > 0) {
+        if (latestJobs && latestJobs.length > 0 && latestJobs[0].job_code) {
             const match = latestJobs[0].job_code.match(/\d+$/);
             if (match) nextNum = parseInt(match[0], 10) + 1;
         }
@@ -295,7 +301,6 @@ export default async function handler(req, res) {
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         
-        // 🔥 THE NEW LEDGER DEDUCTION
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
         
         result = { success: true, jobId: universalJobId };
@@ -306,8 +311,8 @@ export default async function handler(req, res) {
       // ==========================================
       case "submitDocumentJob":
         const { data: docUser } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
+        const { data: docInst } = await supabase.from('institutes').select('institute_code, code').eq('id', docUser.institute_id).single();
         
-        // 🔥 THE NEW SUBSCRIPTION GATEKEEPER
         const featureTarget = payload.docType === 'Report Card' ? 'report_cards' : 'admit_cards';
         const { data: docFeature } = await supabase
             .from('subscription_features')
@@ -321,8 +326,27 @@ export default async function handler(req, res) {
         if (docFeature.subscriptions.payment_status !== 'Paid' && docFeature.subscriptions.payment_status !== 'Trial') throw new Error("Billing Error: Payment is pending or failed.");
         if (docFeature.remaining <= 0) throw new Error(`${payload.docType} quota exhausted! Please recharge.`);
 
+        // 🔥 THE FIX: Dynamic ID Generator applied to Documents
+        const docInstCode = docInst?.institute_code || docInst?.code || "INST";
+        const jobTypeCodes = { "Report Card": "RC", "Admit Card": "AC", "ID Card": "ID", "Certificate": "CERT" };
+        const docTypeCode = jobTypeCodes[payload.docType] || "DOC";
+        const currentDocYearStr = new Date().getFullYear().toString().slice(-2);
+
+        const { data: latestDocs } = await supabase.from('jobs_queue')
+            .select('job_code')
+            .eq('institute_id', docUser.institute_id)
+            .eq('job_type', payload.docType)
+            .order('job_code', { ascending: false })
+            .limit(1);
+        
+        let nextDocNum = 1;
+        if (latestDocs && latestDocs.length > 0 && latestDocs[0].job_code) {
+            const match = latestDocs[0].job_code.match(/\d+$/);
+            if (match) nextDocNum = parseInt(match[0], 10) + 1;
+        }
+        const docJobId = `${docInstCode}-${docTypeCode}-${currentDocYearStr}-${String(nextDocNum).padStart(4, '0')}`;
+
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
-        const docJobId = `TK-D-${Math.floor(1000 + Math.random() * 9000)}`;
         
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, institute_id: docUser.institute_id, job_type: payload.docType,
@@ -330,7 +354,6 @@ export default async function handler(req, res) {
             meta_data: { class: payload.className, exam_name: payload.examName, num_students: payload.numStudents }
         }]);
 
-        // 🔥 THE NEW LEDGER DEDUCTION
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
         result = { success: true, jobId: docJobId };
