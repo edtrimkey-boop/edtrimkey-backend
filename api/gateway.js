@@ -285,20 +285,17 @@ export default async function handler(req, res) {
         result = { success: true, jobId: universalJobId };
         break;
         
-      // ==========================================
+// ==========================================
       // JOB CREATION - DOCUMENTS
       // ==========================================
       case "submitDocumentJob":
         const { data: docUserObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         const docInstUUID = docUserObj.institute_id;
 
-        // 🔥 THE FIX: The frontend sends 'payload.jobType', not 'payload.docType'!
         const documentTypeStr = payload.jobType; 
-
         const featureTarget = documentTypeStr === 'Report Card' ? 'report_cards' : 'admit_cards';
         
         const [docInstRes, docFeatureRes] = await Promise.all([
-            // 🔥 THE FIX: Use select('*') to ensure we don't cause an error fetching the institute code
             supabase.from('institutes').select('*').eq('id', docInstUUID).single(),
             supabase.from('subscription_features').select('*, subscriptions!inner(status, payment_status, expiry_date)').eq('subscriptions.institute_id', docInstUUID).eq('subscriptions.status', 'Active').eq('feature_key', featureTarget).single()
         ]);
@@ -306,16 +303,15 @@ export default async function handler(req, res) {
         const docFeature = docFeatureRes.data;
         if (!docFeature) throw new Error(`Subscription Required: ${documentTypeStr} module not found.`);
         if (docFeature.subscriptions.payment_status !== 'Paid' && docFeature.subscriptions.payment_status !== 'Trial') throw new Error("Billing Error: Payment is pending.");
+        if (docFeature.subscriptions.expiry_date && new Date(docFeature.subscriptions.expiry_date) < new Date()) throw new Error("Subscription Expired.");
         if (docFeature.remaining <= 0) throw new Error(`${documentTypeStr} quota exhausted! Please recharge.`);
 
         const docInstCode = docInstRes.data?.institute_code || docInstRes.data?.code || "INST";
         const jobTypeCodes = { "Report Card": "RC", "Admit Card": "AC", "ID Card": "ID", "Certificate": "CERT" };
-        
-        // 🔥 THE FIX: Now it correctly maps "Report Card" to "RC"
         const docTypeCode = jobTypeCodes[documentTypeStr] || "DOC";
         const currentDocYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // 🔥 BULLETPROOF HIGH-SPEED ID GENERATOR FOR DOCUMENTS
+        // BULLETPROOF HIGH-SPEED ID GENERATOR FOR DOCUMENTS
         const docPrefix = `${docInstCode}-${docTypeCode}-${currentDocYearStr}-`;
         const { data: existingDocs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${docPrefix}%`);
         
@@ -334,12 +330,12 @@ export default async function handler(req, res) {
 
         const docJobId = `${docPrefix}${String(nextDocNum).padStart(4, '0')}`;
 
-        // 🔥 Generate the 48-hour deadline timestamp just like Papers
-        const deadlineDate = new Date();
-        deadlineDate.setHours(deadlineDate.getHours() + 48);
-
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         
+        // 🔥 UNIQUE VARIABLE NAME TO PREVENT SYNTAX ERRORS
+        const docDeadlineDate = new Date();
+        docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
+
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, 
             institute_id: docInstUUID, 
@@ -347,11 +343,11 @@ export default async function handler(req, res) {
             requester_id: docUserObj.id, 
             status: 'Pending', 
             raw_file_url: docDriveUrl,
-            deadline: deadlineDate.toISOString(), // 🔥 Added deadline here!
+            deadline: docDeadlineDate.toISOString(),
             meta_data: { 
                 class: payload.className ? payload.className.toUpperCase() : "", 
                 exam_name: payload.examName ? payload.examName.toUpperCase() : "", 
-                num_students: payload.numStudents 
+                num_students: payload.num_students || payload.numStudents 
             }
         }]);
 
