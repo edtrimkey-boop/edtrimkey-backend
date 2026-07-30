@@ -356,25 +356,7 @@ export default async function handler(req, res) {
         result = { success: true, jobId: docJobId };
         break;
         
-      // ==========================================
-      // OPERATIONAL REVISIONS (ADD NOTE)
-      // ==========================================
-      case "appendJobNote":
-        const { data: jobData, error: jobErr } = await supabase.from('jobs_queue').select('meta_data, status').eq('job_code', payload.jobId).single();
-        if (jobErr || !jobData) throw new Error("Security Error: Job not found.");
-
-        if (jobData.status !== 'Pending' && jobData.status !== 'Transmitted') throw new Error("Too late! The operator has already started formatting this job.");
-
-        // 🔥 JSONB SAFE MERGE
-        let currentMeta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
-        let updatedMeta = { ...currentMeta, note: payload.note };
-
-        const { error: noteUpdateErr } = await supabase.from('jobs_queue').update({ meta_data: updatedMeta }).eq('job_code', payload.jobId);
-        if (noteUpdateErr) throw new Error("Database failed to attach the note.");
-
-        result = { success: true, message: "Note securely attached." };
-        break;
-
+    
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
       // ==========================================
@@ -488,23 +470,78 @@ export default async function handler(req, res) {
       case "download":
         result = { success: true, url: payload.row };
         break;
+
+        // ==========================================
+      // TIMELINE & COMMUNICATION ENGINE
+      // ==========================================
+      case "getJobTimeline": {
+        const { data: tlJobData, error: tlJobErr } = await supabase
+            .from('jobs_queue')
+            .select('meta_data, status, created_at')
+            .eq('job_code', payload.jobId)
+            .single();
+
+        if (tlJobErr || !tlJobData) throw new Error("Job not found.");
+
+        let historyArr = tlJobData.meta_data?.history || [];
         
-      case "requestJobRevision":
-        const { data: jobInfo } = await supabase.from('jobs_queue').select('meta_data').eq('job_code', payload.jobId).single();
-        let newMeta = typeof jobInfo?.meta_data === 'string' ? JSON.parse(jobInfo.meta_data) : (jobInfo?.meta_data || {});
-        newMeta.latest_correction_note = payload.note;
-        await supabase.from('jobs_queue').update({ status: 'Pending Revision', meta_data: newMeta }).eq('job_code', payload.jobId);
-        result = { success: true };
+        // If history is completely empty, construct a dynamic "Genesis" event based on creation
+        if (historyArr.length === 0) {
+            let createdDate = new Date(tlJobData.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            historyArr.push({
+                type: 'completed',
+                actorName: 'System',
+                actorRole: 'automation',
+                message: 'Job submitted securely to the pipeline.',
+                timestamp: createdDate
+            });
+        }
+        
+        result = { success: true, history: historyArr };
         break;
+      }
 
-      default:
-        throw new Error("Invalid API Action requested: " + action);
-    }
+      case "addJobTimelineEvent": {
+        // 1. Fetch current job
+        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id').eq('job_code', payload.jobId).single();
+        if (!currentJob) throw new Error("Job not found.");
 
-    return res.status(200).json(result);
+        let meta = currentJob.meta_data || {};
+        let timeline = meta.history || [];
 
-  } catch (error) {
-    console.error(error);
-    return res.status(200).json({ success: false, message: error.message });
-  }
-}
+        // 2. Build the new timeline event
+        const newEvent = {
+            type: payload.mode === 'revision' ? 'revision' : 'note',
+            actorName: payload.actorName || 'User',
+            actorRole: payload.actorRole || 'Unknown',
+            message: payload.message,
+            timestamp: new Date().toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+        };
+
+        timeline.push(newEvent);
+        meta.history = timeline;
+        
+        // Ensure legacy support for UI rendering
+        meta.latest_correction_note = payload.message;
+
+        // 3. Status logic
+        let newStatus = currentJob.status;
+        if (payload.mode === 'revision') {
+            newStatus = 'Pending Revision';
+        }
+
+        // 4. Update Database
+        await supabase.from('jobs_queue')
+            .update({ meta_data: meta, status: newStatus })
+            .eq('job_code', payload.jobId);
+
+        // -------------------------------------------------------------
+        // 🔔 FUTURE NOTIFICATION HOOK GOES HERE
+        // -------------------------------------------------------------
+        // let notifyTarget = payload.actorRole === 'operator' ? currentJob.requester_id : currentJob.operator_id;
+        // if (notifyTarget) { sendPushAlert(notifyTarget, "New Message on Job " + payload.jobId); }
+        // -------------------------------------------------------------
+
+        result = { success: true, message: "Timeline updated." };
+        break;
+      }
