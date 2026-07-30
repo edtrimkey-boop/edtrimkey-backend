@@ -471,7 +471,7 @@ export default async function handler(req, res) {
         result = { success: true, url: payload.row };
         break;
 
-        // ==========================================
+      // ==========================================
       // TIMELINE & COMMUNICATION ENGINE
       // ==========================================
       case "getJobTimeline": {
@@ -545,3 +545,15 @@ export default async function handler(req, res) {
         result = { success: true, message: "Timeline updated." };
         break;
       }
+
+      default:
+        throw new Error("Invalid API Action requested: " + action);
+    } // <-- Properly closes the switch statement
+
+    return res.status(200).json(result);
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ success: false, message: error.message });
+  }
+}
