@@ -72,7 +72,7 @@ export default async function handler(req, res) {
       // ==========================================
       // DASHBOARD DATA AGGREGATOR (ULTRA-FAST PARALLEL QUERIES)
       // ==========================================
-     case "getDashboardPayload": {
+ case "getDashboardPayload": {
         const { data: userData, error: userErr } = await supabase
             .from('users')
             .select('*, institutes(*), operator_profiles(*)')
@@ -85,28 +85,37 @@ export default async function handler(req, res) {
         const dashInstUUID = userData.institute_id;
         const dashUserUUID = userData.id;
 
-        // 🔥 FIX 1: Fetch the Institute Name directly attached to the Job!
-        let jobsQuery = supabase.from('jobs_queue').select('*, institutes(institute_name, code)').order('created_at', { ascending: false });
+        // 🔥 FIX 1: Safe Job Query (No forced Joins that crash PostgREST)
+        let jobsQuery = supabase.from('jobs_queue').select('*').order('created_at', { ascending: false });
         
         if (dashRole === 'teacher') jobsQuery = jobsQuery.eq('requester_id', dashUserUUID);
         else if (dashRole === 'admin') jobsQuery = jobsQuery.eq('institute_id', dashInstUUID);
         else if (dashRole === 'operator') jobsQuery = jobsQuery.eq('operator_id', dashUserUUID);
 
-        // 🔥 FIX 2: Look for Direct UUIDs in the Notification Array
-        const [subsRes, teacherRes, jobsRes, notifsRes] = await Promise.all([
+        // 🔥 FIX 2: Parallel Fetch + Safe Notifications + Institute Dictionary
+        const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
-            supabase.from('notifications')
-              .select('*')
-              .or(`target_roles.cs.{${userData.role}},target_roles.cs.{"${userData.id}"}`) // Searches for role OR direct User ID
-              .order('created_at', { ascending: false })
-              .limit(30)
+            supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100), // Safe fetch, filter in JS
+            supabase.from('institutes').select('id, institute_name') // Quick fetch for mapping
         ]);
 
         const activeSubs = subsRes.data || [];
         const safeJobs = jobsRes.data || [];
-        const safeNotifs = notifsRes.data || [];
+        
+        // 🔥 FIX 3: Safe Notification Filtering (Prevents array syntax crashes)
+        const safeNotifs = (notifsRes.data || []).filter(n => 
+            n.target_roles && (n.target_roles.includes(userData.role) || n.target_roles.includes(userData.id))
+        ).slice(0, 30);
+
+        // 🔥 FIX 4: Build Institute Dictionary for Operators
+        const instMap = {};
+        if (allInstRes.data) {
+            allInstRes.data.forEach(inst => {
+                instMap[inst.id] = inst.institute_name;
+            });
+        }
         
         let formattedTeacherSubjects = teacherRes.data?.subject_handles ? (Array.isArray(teacherRes.data.subject_handles) ? teacherRes.data.subject_handles.join(', ') : teacherRes.data.subject_handles) : null;
 
@@ -159,16 +168,17 @@ export default async function handler(req, res) {
             }
           },
           data: {
-            // 🔥 FIX 1: Map the Institute Name from the Job Relationship
+            // 🔥 FIXED: Safely maps Institute Name via instMap dictionary
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
-                id: j.job_code, date: j.created_at, inst: j.institutes?.institute_name || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
+                id: j.job_code, date: j.created_at, inst: instMap[j.institute_id] || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '', latestCorrectionNote: j.meta_data?.latest_correction_note || ''
             })),
             docs: safeJobs.filter(j => j.job_type !== 'Paper').map(j => ({ 
-                id: j.job_code, date: j.created_at, inst: j.institutes?.institute_name || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
+                id: j.job_code, date: j.created_at, inst: instMap[j.institute_id] || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '', latestCorrectionNote: j.meta_data?.latest_correction_note || ''
             })),
             myBilling: [], instTeachers: [], instStudents: []
           },
-          notifications: safeNotifs.map(n => ({ title: n.title, msg: n.message, time: n.created_at, isRead: false })),
+          // 🔥 FIXED: Locks incoming notifications to Indian Standard Time instantly
+          notifications: safeNotifs.map(n => ({ title: n.title, msg: n.message, time: new Date(n.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }), isRead: false })),
           stats: {
              academic: { today: safeJobs.filter(j => j.status === 'Pending').length, session: safeJobs.length, academic: safeJobs.length },
              inst: { month: safeJobs.length, academic: safeJobs.length },
