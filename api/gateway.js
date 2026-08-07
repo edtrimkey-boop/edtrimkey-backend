@@ -492,26 +492,16 @@ export default async function handler(req, res) {
       // TIMELINE & COMMUNICATION ENGINE
       // ==========================================
       case "getJobTimeline": {
-        const { data: tlJobData, error: tlJobErr } = await supabase
-            .from('jobs_queue')
-            .select('meta_data, status, created_at')
-            .eq('job_code', payload.jobId)
-            .single();
-
+        const { data: tlJobData, error: tlJobErr } = await supabase.from('jobs_queue').select('meta_data, status, created_at').eq('job_code', payload.jobId).single();
         if (tlJobErr || !tlJobData) throw new Error("Job not found.");
 
-        let historyArr = tlJobData.meta_data?.history || [];
+        // 🔥 FIX: Safely parse JSON whether it comes back as a string or an object
+        let meta = typeof tlJobData.meta_data === 'string' ? JSON.parse(tlJobData.meta_data) : (tlJobData.meta_data || {});
+        let historyArr = meta.history || [];
         
-        // If history is completely empty, construct a dynamic "Genesis" event based on creation
         if (historyArr.length === 0) {
-            let createdDate = new Date(tlJobData.created_at).toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-            historyArr.push({
-                type: 'completed',
-                actorName: 'System',
-                actorRole: 'automation',
-                message: 'Job submitted securely to the pipeline.',
-                timestamp: createdDate
-            });
+            let createdDate = new Date(tlJobData.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+            historyArr.push({ type: 'system', actorName: 'System', actorRole: 'automation', message: 'Job created securely.', timestamp: createdDate });
         }
         
         result = { success: true, history: historyArr };
@@ -519,58 +509,55 @@ export default async function handler(req, res) {
       }
 
       case "addJobTimelineEvent": {
-        // 1. Fetch current job
-        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id').eq('job_code', payload.jobId).single();
+        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
 
-        let meta = currentJob.meta_data || {};
+        // 🔥 FIX: Safely parse JSON to prevent overwriting existing arrays
+        let meta = typeof currentJob.meta_data === 'string' ? JSON.parse(currentJob.meta_data) : (currentJob.meta_data || {});
         let timeline = meta.history || [];
 
-        // 2. Build the new timeline event
+        const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+
         const newEvent = {
             type: payload.mode === 'revision' ? 'revision' : 'note',
             actorName: payload.actorName || 'User',
             actorRole: payload.actorRole || 'Unknown',
             message: payload.message,
-            timestamp: new Date().toLocaleString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            timestamp: istTime
         };
 
         timeline.push(newEvent);
         meta.history = timeline;
-        
-        // Ensure legacy support for UI rendering
         meta.latest_correction_note = payload.message;
 
-        // 3. Status logic
-        let newStatus = currentJob.status;
-        if (payload.mode === 'revision') {
-            newStatus = 'Pending Revision';
+        let newStatus = payload.mode === 'revision' ? 'Pending Revision' : currentJob.status;
+
+        await supabase.from('jobs_queue').update({ meta_data: meta, status: newStatus }).eq('job_code', payload.jobId);
+
+        // The Notification Bridge
+        let targetId = null;
+        let alertTitle = "";
+        let alertMsg = "";
+
+        if (payload.actorRole === 'operator') {
+            targetId = currentJob.requester_id; // Route back to Teacher
+            alertTitle = "New Reply from Operator";
+            alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
+        } else if (currentJob.operator_id) {
+            targetId = currentJob.operator_id; // Route to Assigned Operator
+            alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
+            alertMsg = `Teacher added a note to job ${payload.jobId}.`;
         }
 
-        // 4. Update Database
-        await supabase.from('jobs_queue')
-            .update({ meta_data: meta, status: newStatus })
-            .eq('job_code', payload.jobId);
+        if (targetId) {
+            await supabase.from('notifications').insert([{
+                sender_id: userContext.id,
+                target_roles: [targetId], 
+                title: alertTitle,
+                message: alertMsg
+            }]);
+        }
 
-        // -------------------------------------------------------------
-        // 🔔 FUTURE NOTIFICATION HOOK GOES HERE
-        // -------------------------------------------------------------
-        // let notifyTarget = payload.actorRole === 'operator' ? currentJob.requester_id : currentJob.operator_id;
-        // if (notifyTarget) { sendPushAlert(notifyTarget, "New Message on Job " + payload.jobId); }
-        // -------------------------------------------------------------
-
-        result = { success: true, message: "Timeline updated." };
+        result = { success: true, message: "Message sent." };
         break;
       }
-
-      default:
-        throw new Error("Invalid API Action requested: " + action);
-    } // <-- Properly closes the switch statement
-
-    return res.status(200).json(result);
-
-  } catch (error) {
-    console.error(error);
-    return res.status(200).json({ success: false, message: error.message });
-  }
-}
