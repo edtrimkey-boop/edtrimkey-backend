@@ -492,18 +492,24 @@ export default async function handler(req, res) {
       // TIMELINE & COMMUNICATION ENGINE
       // ==========================================
       case "getJobTimeline": {
-        const { data: tlJobData, error: tlJobErr } = await supabase.from('jobs_queue').select('meta_data, status, created_at').eq('job_code', payload.jobId).single();
+        const { data: tlJobData, error: tlJobErr } = await supabase
+            .from('jobs_queue')
+            .select('meta_data, status, created_at')
+            .eq('job_code', payload.jobId)
+            .single();
+
         if (tlJobErr || !tlJobData) throw new Error("Job not found.");
 
         // 🔥 FIX: Safely parse JSON whether it comes back as a string or an object
         let meta = typeof tlJobData.meta_data === 'string' ? JSON.parse(tlJobData.meta_data) : (tlJobData.meta_data || {});
         let historyArr = meta.history || [];
-        
+
+        // If history is completely empty, construct a dynamic "Genesis" event based on creation
         if (historyArr.length === 0) {
             let createdDate = new Date(tlJobData.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
             historyArr.push({ type: 'system', actorName: 'System', actorRole: 'automation', message: 'Job created securely.', timestamp: createdDate });
         }
-        
+
         result = { success: true, history: historyArr };
         break;
       }
@@ -528,6 +534,8 @@ export default async function handler(req, res) {
 
         timeline.push(newEvent);
         meta.history = timeline;
+        
+        // Ensure legacy support for UI rendering
         meta.latest_correction_note = payload.message;
 
         let newStatus = payload.mode === 'revision' ? 'Pending Revision' : currentJob.status;
@@ -561,3 +569,15 @@ export default async function handler(req, res) {
         result = { success: true, message: "Message sent." };
         break;
       }
+
+      default:
+        throw new Error("Invalid API Action requested: " + action);
+    } // <-- Properly closes the switch statement
+
+    return res.status(200).json(result);
+
+  } catch (error) {
+    console.error(error);
+    return res.status(200).json({ success: false, message: error.message });
+  }
+}
