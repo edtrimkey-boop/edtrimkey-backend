@@ -72,7 +72,7 @@ export default async function handler(req, res) {
       // ==========================================
       // DASHBOARD DATA AGGREGATOR (ULTRA-FAST PARALLEL QUERIES)
       // ==========================================
-      case "getDashboardPayload":
+     case "getDashboardPayload": {
         const { data: userData, error: userErr } = await supabase
             .from('users')
             .select('*, institutes(*), operator_profiles(*)')
@@ -85,18 +85,23 @@ export default async function handler(req, res) {
         const dashInstUUID = userData.institute_id;
         const dashUserUUID = userData.id;
 
-        // 🔥 OPTIMIZATION: Build query for all jobs based on role
-        let jobsQuery = supabase.from('jobs_queue').select('*').order('created_at', { ascending: false });
+        // 🔥 FIX 1: Fetch the Institute Name directly attached to the Job!
+        let jobsQuery = supabase.from('jobs_queue').select('*, institutes(institute_name, code)').order('created_at', { ascending: false });
+        
         if (dashRole === 'teacher') jobsQuery = jobsQuery.eq('requester_id', dashUserUUID);
         else if (dashRole === 'admin') jobsQuery = jobsQuery.eq('institute_id', dashInstUUID);
         else if (dashRole === 'operator') jobsQuery = jobsQuery.eq('operator_id', dashUserUUID);
 
-        // 🔥 OPTIMIZATION: Execute all secondary queries in parallel using Promise.all
+        // 🔥 FIX 2: Look for Direct UUIDs in the Notification Array
         const [subsRes, teacherRes, jobsRes, notifsRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
-            supabase.from('notifications').select('*').contains('target_roles', [userData.role]).order('created_at', { ascending: false }).limit(30)
+            supabase.from('notifications')
+              .select('*')
+              .or(`target_roles.cs.{${userData.role}},target_roles.cs.{"${userData.id}"}`) // Searches for role OR direct User ID
+              .order('created_at', { ascending: false })
+              .limit(30)
         ]);
 
         const activeSubs = subsRes.data || [];
@@ -154,11 +159,12 @@ export default async function handler(req, res) {
             }
           },
           data: {
+            // 🔥 FIX 1: Map the Institute Name from the Job Relationship
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
-                id: j.job_code, date: j.created_at, inst: userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
+                id: j.job_code, date: j.created_at, inst: j.institutes?.institute_name || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
             })),
             docs: safeJobs.filter(j => j.job_type !== 'Paper').map(j => ({ 
-                id: j.job_code, date: j.created_at, inst: userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
+                id: j.job_code, date: j.created_at, inst: j.institutes?.institute_name || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '' 
             })),
             myBilling: [], instTeachers: [], instStudents: []
           },
@@ -183,6 +189,7 @@ export default async function handler(req, res) {
             };
         }
         break;
+      }
 
      // ==========================================
       // JOB CREATION - PAPERS
