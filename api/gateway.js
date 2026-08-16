@@ -542,6 +542,45 @@ export default async function handler(req, res) {
         result = { success: true, url: payload.row };
         break;
 
+// ==========================================
+      // STATUS MANAGEMENT
+      // ==========================================
+      case "updateJobStatus": {
+        const { jobId, status } = payload;
+        if (!jobId || !status) throw new Error("Missing parameters.");
+        
+        // 1. Update the status in the main table
+        const { error: updateErr } = await supabase
+            .from('jobs_queue')
+            .update({ status: status })
+            .eq('job_code', jobId);
+            
+        if (updateErr) throw new Error("Failed to update status.");
+        
+        // 2. Safely log this action in the Timeline History
+        const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        const { data: jobData } = await supabase.from('jobs_queue').select('meta_data').eq('job_code', jobId).single();
+        
+        if (jobData) {
+            let meta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
+            let timeline = meta.history || [];
+            
+            timeline.push({
+                type: 'system',
+                actorName: 'System',
+                actorRole: 'automation',
+                message: `Operator launched workspace. Status updated to ${status}.`,
+                timestamp: istTime
+            });
+            
+            meta.history = timeline;
+            await supabase.from('jobs_queue').update({ meta_data: meta }).eq('job_code', jobId);
+        }
+
+        result = { success: true, message: `Status changed to ${status}` };
+        break;
+      }
+        
       // ==========================================
       // TIMELINE & COMMUNICATION ENGINE
       // ==========================================
