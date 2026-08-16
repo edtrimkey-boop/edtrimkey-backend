@@ -304,7 +304,7 @@ export default async function handler(req, res) {
             job_type: jobTypeStr, 
             requester_id: dbUser.id, 
             operator_id: assignedOperatorId, 
-            status: assignedOperatorId ? 'Pending', 
+            status: assignedOperatorId ? 'Assigned' : 'Pending', 
             raw_file_url: paperDriveUrl, 
             deadline: deadlineDate.toISOString(),
             meta_data: { 
@@ -411,7 +411,7 @@ export default async function handler(req, res) {
             job_type: documentTypeStr, 
             requester_id: docUserObj.id, 
             operator_id: assignedOperatorId, 
-            status: assignedOperatorId ? 'Pending', 
+            status: assignedOperatorId ? 'Assigned' : 'Pending', 
             raw_file_url: docDriveUrl,
             deadline: docDeadlineDate.toISOString(),
             meta_data: { 
