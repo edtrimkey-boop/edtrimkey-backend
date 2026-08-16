@@ -204,7 +204,7 @@ export default async function handler(req, res) {
      // ==========================================
       // JOB CREATION - PAPERS
       // ==========================================
-      case "submitPaperJob": { // <-- Notice the opening bracket to isolate scope!
+      case "submitPaperJob": { 
         const { data: dbUser } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         if (!dbUser) throw new Error("Security Error: Account mapping invalid.");
         const instUUID = dbUser.institute_id;
@@ -267,7 +267,8 @@ export default async function handler(req, res) {
         let assignedOperatorId = null;
         const { data: opData } = await supabase
             .from('users')
-            .select('id, operator_profiles!inner(subjects, work_type)')
+            // 🔥 FIXED: Mapped precisely to your database columns "work_types"
+            .select('id, operator_profiles!inner(subjects, work_types)')
             .eq('role', 'operator')
             .eq('status', 'Active');
 
@@ -276,10 +277,11 @@ export default async function handler(req, res) {
                 const profile = Array.isArray(op.operator_profiles) ? op.operator_profiles[0] : op.operator_profiles;
                 if (!profile) return false;
                 
-                const safeWork = String(profile.work_type || "").toLowerCase();
-                const safeSubj = String(profile.subjects || "").toLowerCase();
+                // 🔥 FIXED: Safely flattens Postgres ARRAYs into lowercase strings
+                const safeWork = JSON.stringify(profile.work_types || []).toLowerCase();
+                const safeSubj = JSON.stringify(profile.subjects || []).toLowerCase();
                 
-                // Matches "Paper" or "Paper Formats"
+                // Matches "paper"
                 const handlesWork = safeWork.includes('paper'); 
                 
                 // Strict Subject Matching
@@ -301,7 +303,7 @@ export default async function handler(req, res) {
             institute_id: instUUID, 
             job_type: jobTypeStr, 
             requester_id: dbUser.id, 
-            operator_id: assignedOperatorId, // Safely mapped!
+            operator_id: assignedOperatorId, 
             status: assignedOperatorId ? 'Assigned' : 'Pending', 
             raw_file_url: paperDriveUrl, 
             deadline: deadlineDate.toISOString(),
@@ -326,12 +328,12 @@ export default async function handler(req, res) {
         
         result = { success: true, jobId: universalJobId };
         break;
-      } // <-- Closes Paper Scope
+      } 
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
       // ==========================================
-      case "submitDocumentJob": { // <-- Notice the opening bracket to isolate scope!
+      case "submitDocumentJob": { 
         const { data: docUserObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         const docInstUUID = docUserObj.institute_id;
 
@@ -379,10 +381,11 @@ export default async function handler(req, res) {
         docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
 
         // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (DOCUMENT)
-        let assignedOperatorId = null; // Completely safe to reuse here because of the {} scope!
+        let assignedOperatorId = null; 
         const { data: opDocData } = await supabase
             .from('users')
-            .select('id, operator_profiles!inner(work_type)')
+            // 🔥 FIXED: Mapped precisely to your database columns "work_types"
+            .select('id, operator_profiles!inner(work_types)')
             .eq('role', 'operator')
             .eq('status', 'Active');
 
@@ -391,8 +394,9 @@ export default async function handler(req, res) {
                 const profile = Array.isArray(op.operator_profiles) ? op.operator_profiles[0] : op.operator_profiles;
                 if (!profile) return false;
                 
-                const safeWork = String(profile.work_type || "").toLowerCase();
-                // Matches "Report Card", "Admit Card", etc.
+                // 🔥 FIXED: Safely flattens Postgres ARRAYs into lowercase strings
+                const safeWork = JSON.stringify(profile.work_types || []).toLowerCase();
+                // Matches "report card", "admit card", etc.
                 return safeWork.includes(documentTypeStr.toLowerCase()) || safeWork.includes('card');
             });
             
@@ -406,7 +410,7 @@ export default async function handler(req, res) {
             institute_id: docInstUUID, 
             job_type: documentTypeStr, 
             requester_id: docUserObj.id, 
-            operator_id: assignedOperatorId, // 🔥 THIS IS WHAT WAS MISSING BEFORE!
+            operator_id: assignedOperatorId, 
             status: assignedOperatorId ? 'Assigned' : 'Pending', 
             raw_file_url: docDriveUrl,
             deadline: docDeadlineDate.toISOString(),
@@ -421,7 +425,7 @@ export default async function handler(req, res) {
 
         result = { success: true, jobId: docJobId };
         break;
-      } // <-- Closes Document Scope
+      }
         
     
       // ==========================================
