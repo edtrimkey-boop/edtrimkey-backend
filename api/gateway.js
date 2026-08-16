@@ -204,7 +204,7 @@ export default async function handler(req, res) {
      // ==========================================
       // JOB CREATION - PAPERS
       // ==========================================
-      case "submitPaperJob":
+      case "submitPaperJob": { // <-- Notice the opening bracket to isolate scope!
         const { data: dbUser } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         if (!dbUser) throw new Error("Security Error: Account mapping invalid.");
         const instUUID = dbUser.institute_id;
@@ -227,7 +227,7 @@ export default async function handler(req, res) {
         const jobTypeStr = payload.jobType || "Paper";
         const currentYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // 🔥 BULLETPROOF HIGH-SPEED ID GENERATOR (GLOBALLY AVOIDS DUPLICATES)
+        // BULLETPROOF HIGH-SPEED ID GENERATOR (GLOBALLY AVOIDS DUPLICATES)
         const idPrefix = `${instCode}-PPR-${currentYearStr}-`;
         const { data: existingJobs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${idPrefix}%`);
         
@@ -263,7 +263,7 @@ export default async function handler(req, res) {
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
 
-       // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (PAPER)
+        // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (PAPER)
         let assignedOperatorId = null;
         const { data: opData } = await supabase
             .from('users')
@@ -297,8 +297,14 @@ export default async function handler(req, res) {
         }
 
         const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
-            job_code: universalJobId, institute_id: instUUID, job_type: jobTypeStr, requester_id: dbUser.id, operator_id: assignedOperatorId,
-            status: 'Pending', raw_file_url: paperDriveUrl, deadline: deadlineDate.toISOString(),
+            job_code: universalJobId, 
+            institute_id: instUUID, 
+            job_type: jobTypeStr, 
+            requester_id: dbUser.id, 
+            operator_id: assignedOperatorId, // Safely mapped!
+            status: assignedOperatorId ? 'Assigned' : 'Pending', 
+            raw_file_url: paperDriveUrl, 
+            deadline: deadlineDate.toISOString(),
             meta_data: { 
                 class: payload.className ? payload.className.toUpperCase() : "", 
                 exam_name: payload.examName ? payload.examName.toUpperCase() : "", 
@@ -320,11 +326,12 @@ export default async function handler(req, res) {
         
         result = { success: true, jobId: universalJobId };
         break;
-        
-// ==========================================
+      } // <-- Closes Paper Scope
+
+      // ==========================================
       // JOB CREATION - DOCUMENTS
       // ==========================================
-      case "submitDocumentJob":
+      case "submitDocumentJob": { // <-- Notice the opening bracket to isolate scope!
         const { data: docUserObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         const docInstUUID = docUserObj.institute_id;
 
@@ -368,12 +375,11 @@ export default async function handler(req, res) {
 
         let docDriveUrl = payload.fileBase64 ? await uploadToGoogleDrive(payload.fileBase64, payload.fileName, payload.mimeType) : "";
         
-        // 🔥 UNIQUE VARIABLE NAME TO PREVENT SYNTAX ERRORS
         const docDeadlineDate = new Date();
         docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
-        
-// 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (DOCUMENT)
-        let assignedOperatorId = null;
+
+        // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (DOCUMENT)
+        let assignedOperatorId = null; // Completely safe to reuse here because of the {} scope!
         const { data: opDocData } = await supabase
             .from('users')
             .select('id, operator_profiles!inner(work_type)')
@@ -394,14 +400,14 @@ export default async function handler(req, res) {
                 assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].id;
             }
         }
-        
-        // Add operator_id to the document insert payload
+
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, 
             institute_id: docInstUUID, 
             job_type: documentTypeStr, 
             requester_id: docUserObj.id, 
-            status: 'Pending', 
+            operator_id: assignedOperatorId, // 🔥 THIS IS WHAT WAS MISSING BEFORE!
+            status: assignedOperatorId ? 'Assigned' : 'Pending', 
             raw_file_url: docDriveUrl,
             deadline: docDeadlineDate.toISOString(),
             meta_data: { 
@@ -415,6 +421,7 @@ export default async function handler(req, res) {
 
         result = { success: true, jobId: docJobId };
         break;
+      } // <-- Closes Document Scope
         
     
       // ==========================================
