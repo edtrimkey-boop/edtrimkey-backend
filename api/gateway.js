@@ -263,18 +263,37 @@ export default async function handler(req, res) {
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
 
+       // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (PAPER)
         let assignedOperatorId = null;
-        const { data: operators } = await supabase.from('operator_profiles').select('*');
-        if (operators && operators.length > 0) {
-            const matchingOps = operators.filter(op => {
-                const safeWork = JSON.stringify(op.work_types || op.workType || "").toLowerCase();
-                const safeSubj = JSON.stringify(op.subjects || "").toLowerCase();
-                const handlesWork = safeWork.includes('paper format') || safeWork.includes('paper'); 
-                const handlesSubject = payload.subject ? (safeSubj.includes(payload.subject.toLowerCase()) || (payload.subject.toLowerCase() === 'mathematics' && safeSubj.includes('math'))) : true;
-                const isActive = (!op.status || op.status === "Active" || op.status === "Connected");
-                return handlesWork && handlesSubject && isActive;
+        const { data: opData } = await supabase
+            .from('users')
+            .select('id, operator_profiles!inner(subjects, work_type)')
+            .eq('role', 'operator')
+            .eq('status', 'Active');
+
+        if (opData && opData.length > 0) {
+            const matchingOps = opData.filter(op => {
+                const profile = Array.isArray(op.operator_profiles) ? op.operator_profiles[0] : op.operator_profiles;
+                if (!profile) return false;
+                
+                const safeWork = String(profile.work_type || "").toLowerCase();
+                const safeSubj = String(profile.subjects || "").toLowerCase();
+                
+                // Matches "Paper" or "Paper Formats"
+                const handlesWork = safeWork.includes('paper'); 
+                
+                // Strict Subject Matching
+                const handlesSubject = payload.subject 
+                    ? (safeSubj.includes(payload.subject.toLowerCase()) || (payload.subject.toLowerCase() === 'mathematics' && safeSubj.includes('math'))) 
+                    : true;
+                    
+                return handlesWork && handlesSubject;
             });
-            if (matchingOps.length > 0) assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].user_id;
+            
+            // Randomly delegate to available matched operators to balance workload
+            if (matchingOps.length > 0) {
+                assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].id;
+            }
         }
 
         const { error: submitDbError } = await supabase.from('jobs_queue').insert([{
@@ -352,7 +371,31 @@ export default async function handler(req, res) {
         // 🔥 UNIQUE VARIABLE NAME TO PREVENT SYNTAX ERRORS
         const docDeadlineDate = new Date();
         docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
+        
+// 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (DOCUMENT)
+        let assignedOperatorId = null;
+        const { data: opDocData } = await supabase
+            .from('users')
+            .select('id, operator_profiles!inner(work_type)')
+            .eq('role', 'operator')
+            .eq('status', 'Active');
 
+        if (opDocData && opDocData.length > 0) {
+            const matchingOps = opDocData.filter(op => {
+                const profile = Array.isArray(op.operator_profiles) ? op.operator_profiles[0] : op.operator_profiles;
+                if (!profile) return false;
+                
+                const safeWork = String(profile.work_type || "").toLowerCase();
+                // Matches "Report Card", "Admit Card", etc.
+                return safeWork.includes(documentTypeStr.toLowerCase()) || safeWork.includes('card');
+            });
+            
+            if (matchingOps.length > 0) {
+                assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].id;
+            }
+        }
+        
+        // Add operator_id to the document insert payload
         await supabase.from('jobs_queue').insert([{
             job_code: docJobId, 
             institute_id: docInstUUID, 
