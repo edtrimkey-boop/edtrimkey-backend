@@ -549,35 +549,44 @@ export default async function handler(req, res) {
         const { jobId, status } = payload;
         if (!jobId || !status) throw new Error("Missing parameters.");
         
-        // 1. Update the status in the main table
-        const { error: updateErr } = await supabase
+        // 1. Fetch current meta_data to safely append the timeline history
+        const { data: jobData, error: fetchErr } = await supabase
             .from('jobs_queue')
-            .update({ status: status })
-            .eq('job_code', jobId);
+            .select('meta_data')
+            .eq('job_code', jobId)
+            .single();
             
-        if (updateErr) throw new Error("Failed to update status.");
-        
-        // 2. Safely log this action in the Timeline History
+        if (fetchErr || !jobData) throw new Error(`Fetch Error: ${fetchErr?.message || 'Job not found'}`);
+
         const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-        const { data: jobData } = await supabase.from('jobs_queue').select('meta_data').eq('job_code', jobId).single();
         
-        if (jobData) {
-            let meta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
-            let timeline = meta.history || [];
-            
+        let meta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
+        let timeline = meta.history || [];
+        
+        // Prevent duplicate spam if they click the button multiple times
+        const lastMsg = timeline.length > 0 ? timeline[timeline.length - 1].message : "";
+        if (!lastMsg.includes(`updated to ${status}`)) {
             timeline.push({
                 type: 'system',
                 actorName: 'System',
                 actorRole: 'automation',
-                message: `Operator launched workspace. Status updated to ${status}.`,
+                message: `Operator launched workspace. Status officially updated to ${status}.`,
                 timestamp: istTime
             });
-            
-            meta.history = timeline;
-            await supabase.from('jobs_queue').update({ meta_data: meta }).eq('job_code', jobId);
         }
+        
+        meta.history = timeline;
 
-        result = { success: true, message: `Status changed to ${status}` };
+        // 2. Perform ONE single, atomic database update
+        const { error: updateErr } = await supabase
+            .from('jobs_queue')
+            .update({ status: status, meta_data: meta })
+            .eq('job_code', jobId);
+            
+        // 🔥 FIX: We now expose the EXACT Supabase error so it can't hide from us
+        if (updateErr) throw new Error(`Database Rejected: ${updateErr.message}`);
+
+        result = { success: true, message: `Status securely changed to ${status}` };
         break;
       }
         
