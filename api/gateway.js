@@ -544,90 +544,49 @@ export default async function handler(req, res) {
 
         
       // ==========================================
-      // SCALABLE COMMUNICATION ENGINE
+      // STATUS MANAGEMENT
       // ==========================================
-      case "getJobTimeline": {
-        // 1. Instantly pull all messages for this job, sorted chronologically
-        const { data: messages, error: msgErr } = await supabase
-            .from('job_communications')
-            .select('*')
-            .eq('job_code', payload.jobId)
-            .order('created_at', { ascending: true });
+      case "updateJobStatus": {
+        const { jobId, status } = payload;
+        if (!jobId || !status) throw new Error("Missing parameters.");
+        
+        // 1. Fetch current meta_data to safely append the timeline history
+        const { data: jobData, error: fetchErr } = await supabase
+            .from('jobs_queue')
+            .select('meta_data')
+            .eq('job_code', jobId)
+            .single();
+            
+        if (fetchErr || !jobData) throw new Error(`Fetch Error: ${fetchErr?.message || 'Job not found'}`);
 
-        if (msgErr) throw new Error("Failed to load communications.");
-
-        // 2. Format them for the frontend
-        let historyArr = messages.map(msg => {
-            return {
-                type: msg.message_type,
-                actorName: msg.actor_name,
-                actorRole: msg.actor_role,
-                message: msg.message,
-                timestamp: new Date(msg.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
-            };
-        });
-
-        // 3. Genesis Message: If the table is empty, auto-generate the first system message
-        if (historyArr.length === 0) {
-            const { data: jobData } = await supabase.from('jobs_queue').select('created_at').eq('job_code', payload.jobId).single();
-            if (jobData) {
-                let createdDate = new Date(jobData.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-                historyArr.push({ type: 'system', actorName: 'System', actorRole: 'automation', message: 'Job created securely.', timestamp: createdDate });
-            }
+        const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        
+        let meta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
+        let timeline = meta.history || [];
+        
+        // Prevent duplicate spam if they click the button multiple times
+        const lastMsg = timeline.length > 0 ? timeline[timeline.length - 1].message : "";
+        if (!lastMsg.includes(`updated to ${status}`)) {
+            timeline.push({
+                type: 'system',
+                actorName: 'System',
+                actorRole: 'automation',
+                message: `Operator launched workspace. Status officially updated to ${status}.`,
+                timestamp: istTime
+            });
         }
+        
+        meta.history = timeline;
 
-        result = { success: true, history: historyArr };
-        break;
-      }
+        // 2. Perform ONE single, atomic database update
+        const { error: updateErr } = await supabase
+            .from('jobs_queue')
+            .update({ status: status, meta_data: meta })
+            .eq('job_code', jobId);
+            
+        if (updateErr) throw new Error(`Database Rejected: ${updateErr.message}`);
 
-      case "addJobTimelineEvent": {
-        const { data: currentJob } = await supabase.from('jobs_queue').select('status, requester_id, operator_id').eq('job_code', payload.jobId).single();
-        if (!currentJob) throw new Error("Job not found.");
-
-        // 1. Insert the new message as a standalone row (ZERO RACE CONDITIONS)
-        const { error: insertErr } = await supabase.from('job_communications').insert([{
-            job_code: payload.jobId,
-            actor_name: payload.actorName || 'User',
-            actor_role: payload.actorRole || 'Unknown',
-            message_type: payload.mode === 'revision' ? 'revision' : 'note',
-            message: payload.message
-        }]);
-
-        if (insertErr) throw new Error("Failed to send message: " + insertErr.message);
-
-        // 2. If it's a revision, update the master job status separately
-        if (payload.mode === 'revision') {
-            await supabase.from('jobs_queue').update({ status: 'Pending Revision' }).eq('job_code', payload.jobId);
-        } else {
-            // (Optional) Update a 'last_updated' timestamp on the job so it bubbles to the top of queues
-            await supabase.from('jobs_queue').update({ updated_at: new Date().toISOString() }).eq('job_code', payload.jobId);
-        }
-
-        // 3. The Notification Bridge (Same as before)
-        let targetId = null;
-        let alertTitle = "";
-        let alertMsg = "";
-
-        if (payload.actorRole === 'operator') {
-            targetId = currentJob.requester_id; 
-            alertTitle = "New Reply from Operator";
-            alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
-        } else if (currentJob.operator_id) {
-            targetId = currentJob.operator_id; 
-            alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
-            alertMsg = `Teacher added a note to job ${payload.jobId}.`;
-        }
-
-        if (targetId) {
-            await supabase.from('notifications').insert([{
-                sender_id: userContext.id,
-                target_roles: [targetId], 
-                title: alertTitle,
-                message: alertMsg
-            }]);
-        }
-
-        result = { success: true, message: "Message sent." };
+        result = { success: true, message: `Status securely changed to ${status}` };
         break;
       }
         
