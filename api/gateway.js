@@ -668,7 +668,7 @@ export default async function handler(req, res) {
         if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
         await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
 
-// 🔥 THE OMNICHANNEL PUB/SUB BRIDGE
+        // 🔥 THE OMNICHANNEL PUB/SUB BRIDGE
         let targetUserArr = [];
         let alertTitle = "";
         let alertMsg = "";
@@ -703,6 +703,7 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Message sent." };
         break;
+      } // <--- 🔥 THIS IS THE CLOSING BRACE THAT WAS MISSING!
 
       default:
         throw new Error("Invalid API Action requested: " + action);
