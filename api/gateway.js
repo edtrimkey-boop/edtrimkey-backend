@@ -85,24 +85,24 @@ export default async function handler(req, res) {
         const dashInstUUID = userData.institute_id;
         const dashUserUUID = userData.id;
 
-        // 🔥 FIX 1: Safe Job Query (No forced Joins that crash PostgREST)
+        // 🔥 FIX 1: Allow operators to see their jobs AND unassigned jobs
         let jobsQuery = supabase.from('jobs_queue').select('*').order('created_at', { ascending: false });
-        
         if (dashRole === 'teacher') jobsQuery = jobsQuery.eq('requester_id', dashUserUUID);
         else if (dashRole === 'admin') jobsQuery = jobsQuery.eq('institute_id', dashInstUUID);
-        else if (dashRole === 'operator') jobsQuery = jobsQuery.eq('operator_id', dashUserUUID);
+        else if (dashRole === 'operator') jobsQuery = jobsQuery.or(`operator_id.eq.${dashUserUUID},operator_id.is.null`);
 
-        // 🔥 FIX 2: Parallel Fetch + Safe Notifications + Institute Dictionary
+        // 🔥 FIX 2: Correctly fetch notifications using the new user_id schema
         const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
-            supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(100), // Safe fetch, filter in JS
-            supabase.from('institutes').select('id, institute_name') // Quick fetch for mapping
+            supabase.from('notifications').select('*').eq('user_id', dashUserUUID).order('created_at', { ascending: false }).limit(30),
+            supabase.from('institutes').select('id, institute_name') 
         ]);
 
         const activeSubs = subsRes.data || [];
         const safeJobs = jobsRes.data || [];
+        const safeNotifs = notifsRes.data || []; // Safely mapped to your schema!
         
         // 🔥 FIX 3: Safe Notification Filtering (Prevents array syntax crashes)
         const safeNotifs = (notifsRes.data || []).filter(n => 
@@ -177,14 +177,15 @@ export default async function handler(req, res) {
             })),
             myBilling: [], instTeachers: [], instStudents: []
           },
-          // 🔥 FIXED: Locks incoming notifications to Indian Standard Time instantly
-          notifications: safeNotifs.map(n => ({ title: n.title, msg: n.message, time: new Date(n.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }), isRead: false })),
-          stats: {
-             academic: { today: safeJobs.filter(j => j.status === 'Pending').length, session: safeJobs.length, academic: safeJobs.length },
-             inst: { month: safeJobs.length, academic: safeJobs.length },
-             financial: { total: 0, pending: 0 }
-          }
-        };
+          
+         // 🔥 FIXED: Maps the reference_id perfectly to the frontend routing engine
+          notifications: safeNotifs.map(n => ({ 
+              title: n.title, 
+              msg: n.message, 
+              time: new Date(n.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }), 
+              isRead: n.status === 'read',
+              refId: n.reference_id 
+          })),
 
         if (["super admin", "system admin", "all"].includes(dashRole)) {
             const [allInstRes, allOpsRes] = await Promise.all([
@@ -326,17 +327,24 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-        // 🔥 ENTERPRISE NOTIFICATION ROUTING
-        if (assignedOperatorId) {
-            await supabase.from('notifications').insert([{
-                user_id: assignedOperatorId,
+        // 🔥 ENTERPRISE NOTIFICATION ROUTING (Broadcasts to all if unassigned)
+        let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
+        if (!assignedOperatorId) {
+            const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
+            if (allOps) notifyIds = allOps.map(op => op.id);
+        }
+
+        if (notifyIds.length > 0) {
+            const notifPayloads = notifyIds.map(uid => ({
+                user_id: uid,
                 institute_id: instUUID,
-                title: "New Job Assigned",
-                message: `Job ${universalJobId} has been assigned to your queue.`,
+                title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
+                message: assignedOperatorId ? `Job ${universalJobId} has been assigned to your queue.` : `Job ${universalJobId} is pending assignment.`,
                 type: "job_assigned",
                 status: "unread",
                 reference_id: universalJobId
-            }]);
+            }));
+            await supabase.from('notifications').insert(notifPayloads);
         }
         
         result = { success: true, jobId: universalJobId };
@@ -436,17 +444,24 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-        // 🔥 ENTERPRISE NOTIFICATION ROUTING
-        if (assignedOperatorId) {
-            await supabase.from('notifications').insert([{
-                user_id: assignedOperatorId,
+        // 🔥 ENTERPRISE NOTIFICATION ROUTING (Broadcasts to all if unassigned)
+        let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
+        if (!assignedOperatorId) {
+            const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
+            if (allOps) notifyIds = allOps.map(op => op.id);
+        }
+
+        if (notifyIds.length > 0) {
+            const notifPayloads = notifyIds.map(uid => ({
+                user_id: uid,
                 institute_id: docInstUUID,
-                title: "New Document Assigned",
-                message: `Document Job ${docJobId} has been assigned to your queue.`,
+                title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
+                message: assignedOperatorId ? `Job ${docJobId} has been assigned to your queue.` : `Job ${docJobId} is pending assignment.`,
                 type: "job_assigned",
                 status: "unread",
                 reference_id: docJobId
-            }]);
+            }));
+            await supabase.from('notifications').insert(notifPayloads);
         }
         
         result = { success: true, jobId: docJobId };
