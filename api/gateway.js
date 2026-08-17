@@ -321,7 +321,7 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-        // 🔥 ENTERPRISE NOTIFICATION ROUTING
+       // 🔥 ENTERPRISE NOTIFICATION ROUTING
         let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
         if (!assignedOperatorId) {
             const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
@@ -343,7 +343,7 @@ export default async function handler(req, res) {
         
         result = { success: true, jobId: universalJobId };
         break;
-      } 
+      } // <--- Cleanly closes the submitPaperJob case
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
@@ -435,7 +435,7 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-        // 🔥 ENTERPRISE NOTIFICATION ROUTING
+       // 🔥 ENTERPRISE NOTIFICATION ROUTING
         let docNotifyIds = assignedOperatorId ? [assignedOperatorId] : [];
         if (!assignedOperatorId) {
             const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
@@ -457,7 +457,7 @@ export default async function handler(req, res) {
 
         result = { success: true, jobId: docJobId };
         break;
-      }
+      } // <--- Cleanly closes the submitDocumentJob case
      
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
@@ -678,7 +678,7 @@ export default async function handler(req, res) {
         if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
         await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
 
-      // 3. 🔥 THE OMNICHANNEL NOTIFICATION BRIDGE
+        // 3. 🔥 THE OMNICHANNEL NOTIFICATION BRIDGE
         let targetUserId = null;
         let alertTitle = "";
         let alertMsg = "";
@@ -710,6 +710,7 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Message sent." };
         break;
+      } // <--- 🔥 THIS CLOSING BRACE WAS MISSING!
 
       default:
         throw new Error("Invalid API Action requested: " + action);
