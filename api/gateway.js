@@ -326,19 +326,18 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-        // 🔥 FIX 4: ALERTS OPERATORS INSTANTLY (Targeted or Broadcast)
-        let targetRolesForNotif = assignedOperatorId ? [assignedOperatorId] : ['operator', 'system admin', 'super admin'];
-        let alertTitle = assignedOperatorId ? "New Job Assigned" : "New Job in Queue";
-        let alertMsg = assignedOperatorId 
-             ? `Job ${universalJobId} has been assigned to your queue.` 
-             : `Job ${universalJobId} is pending assignment.`;
-
-        await supabase.from('notifications').insert([{
-            sender_id: userContext.id,
-            target_roles: targetRolesForNotif,
-            title: alertTitle,
-            message: alertMsg
-        }]);
+        // 🔥 ENTERPRISE NOTIFICATION ROUTING
+        if (assignedOperatorId) {
+            await supabase.from('notifications').insert([{
+                user_id: assignedOperatorId,
+                institute_id: instUUID,
+                title: "New Job Assigned",
+                message: `Job ${universalJobId} has been assigned to your queue.`,
+                type: "job_assigned",
+                status: "unread",
+                reference_id: universalJobId
+            }]);
+        }
         
         result = { success: true, jobId: universalJobId };
         break;
@@ -437,19 +436,18 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-        // 🔥 FIX 4: ALERTS OPERATORS INSTANTLY (Targeted or Broadcast)
-        let targetRolesForNotif = assignedOperatorId ? [assignedOperatorId] : ['operator', 'system admin', 'super admin'];
-        let alertTitle = assignedOperatorId ? "New Document Assigned" : "New Document in Queue";
-        let alertMsg = assignedOperatorId 
-             ? `Document ${docJobId} has been assigned to your queue.` 
-             : `Document ${docJobId} is pending assignment.`;
-
-        await supabase.from('notifications').insert([{
-            sender_id: userContext.id,
-            target_roles: targetRolesForNotif,
-            title: alertTitle,
-            message: alertMsg
-        }]);
+        // 🔥 ENTERPRISE NOTIFICATION ROUTING
+        if (assignedOperatorId) {
+            await supabase.from('notifications').insert([{
+                user_id: assignedOperatorId,
+                institute_id: docInstUUID,
+                title: "New Document Assigned",
+                message: `Document Job ${docJobId} has been assigned to your queue.`,
+                type: "job_assigned",
+                status: "unread",
+                reference_id: docJobId
+            }]);
+        }
         
         result = { success: true, jobId: docJobId };
         break;
@@ -675,34 +673,37 @@ export default async function handler(req, res) {
         if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
         await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
 
-        // 3. The Notification Bridge
-        let targetRolesForNotif = [];
+        // 3. 🔥 THE OMNICHANNEL NOTIFICATION BRIDGE
+        let targetUserId = null;
         let alertTitle = "";
         let alertMsg = "";
+        let notifType = "new_message";
 
         if (payload.actorRole === 'operator') {
-            targetRolesForNotif = [currentJob.requester_id]; // Target the Teacher
+            targetUserId = currentJob.requester_id; // Targets the Teacher
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
         } else {
-            // Target specific operator, or broadcast to ALL operators if unassigned!
-            targetRolesForNotif = currentJob.operator_id ? [currentJob.operator_id] : ['operator', 'system admin', 'super admin'];
+            targetUserId = currentJob.operator_id; // Targets the Operator
             alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
             alertMsg = `${payload.actorName} added a note to job ${payload.jobId}.`;
+            if (payload.mode === 'revision') notifType = "revision_alert";
         }
 
-        if (targetRolesForNotif.length > 0) {
+        if (targetUserId) {
             await supabase.from('notifications').insert([{
-                sender_id: userContext.id,
-                target_roles: targetRolesForNotif, 
+                user_id: targetUserId,
+                institute_id: currentJob.institute_id || null,
                 title: alertTitle,
-                message: alertMsg
+                message: alertMsg,
+                type: notifType,
+                status: "unread",
+                reference_id: payload.jobId
             }]);
         }
 
         result = { success: true, message: "Message sent." };
         break;
-      }
 
       default:
         throw new Error("Invalid API Action requested: " + action);
