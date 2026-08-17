@@ -326,15 +326,19 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-        // 🔥 ALERTS THE ASSIGNED OPERATOR INSTANTLY
-        if (assignedOperatorId) {
-            await supabase.from('notifications').insert([{
-                sender_id: dbUser.id,
-                target_roles: [assignedOperatorId],
-                title: "New Job Assigned",
-                message: `Job ${universalJobId} has been assigned to your queue.`
-            }]);
-        }
+        // 🔥 FIX 4: ALERTS OPERATORS INSTANTLY (Targeted or Broadcast)
+        let targetRolesForNotif = assignedOperatorId ? [assignedOperatorId] : ['operator', 'system admin', 'super admin'];
+        let alertTitle = assignedOperatorId ? "New Job Assigned" : "New Job in Queue";
+        let alertMsg = assignedOperatorId 
+             ? `Job ${universalJobId} has been assigned to your queue.` 
+             : `Job ${universalJobId} is pending assignment.`;
+
+        await supabase.from('notifications').insert([{
+            sender_id: userContext.id,
+            target_roles: targetRolesForNotif,
+            title: alertTitle,
+            message: alertMsg
+        }]);
         
         result = { success: true, jobId: universalJobId };
         break;
@@ -433,15 +437,19 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-        // 🔥 ALERTS THE ASSIGNED OPERATOR INSTANTLY
-        if (assignedOperatorId) {
-            await supabase.from('notifications').insert([{
-                sender_id: docUserObj.id,
-                target_roles: [assignedOperatorId],
-                title: "New Job Assigned",
-                message: `Document Job ${docJobId} has been assigned to your queue.`
-            }]);
-        }
+        // 🔥 FIX 4: ALERTS OPERATORS INSTANTLY (Targeted or Broadcast)
+        let targetRolesForNotif = assignedOperatorId ? [assignedOperatorId] : ['operator', 'system admin', 'super admin'];
+        let alertTitle = assignedOperatorId ? "New Document Assigned" : "New Document in Queue";
+        let alertMsg = assignedOperatorId 
+             ? `Document ${docJobId} has been assigned to your queue.` 
+             : `Document ${docJobId} is pending assignment.`;
+
+        await supabase.from('notifications').insert([{
+            sender_id: userContext.id,
+            target_roles: targetRolesForNotif,
+            title: alertTitle,
+            message: alertMsg
+        }]);
         
         result = { success: true, jobId: docJobId };
         break;
