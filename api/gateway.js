@@ -228,7 +228,7 @@ export default async function handler(req, res) {
         const jobTypeStr = payload.jobType || "Paper";
         const currentYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // BULLETPROOF HIGH-SPEED ID GENERATOR (GLOBALLY AVOIDS DUPLICATES)
+        // BULLETPROOF HIGH-SPEED ID GENERATOR
         const idPrefix = `${instCode}-PPR-${currentYearStr}-`;
         const { data: existingJobs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${idPrefix}%`);
         
@@ -264,7 +264,7 @@ export default async function handler(req, res) {
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
 
-        // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (PAPER)
+        // 🔥 HIGH-SPEED OPERATOR ASSIGNMENT
         let assignedOperatorId = null;
         const { data: opData } = await supabase
             .from('users')
@@ -321,7 +321,7 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-       // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
+        // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
         let targetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let targetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
 
@@ -339,6 +339,7 @@ export default async function handler(req, res) {
         
         result = { success: true, jobId: universalJobId };
         break;
+      } 
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
@@ -390,7 +391,7 @@ export default async function handler(req, res) {
         const docDeadlineDate = new Date();
         docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
 
-        // 🔥 NUCLEAR-PROOF HIGH-SPEED OPERATOR ASSIGNMENT (DOCUMENT)
+        // 🔥 HIGH-SPEED OPERATOR ASSIGNMENT
         let assignedOperatorId = null; 
         const { data: opDocData } = await supabase
             .from('users')
@@ -430,7 +431,7 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-       // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
+        // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
         let docTargetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let docTargetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
 
@@ -448,6 +449,7 @@ export default async function handler(req, res) {
 
         result = { success: true, jobId: docJobId };
         break;
+      }
      
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
