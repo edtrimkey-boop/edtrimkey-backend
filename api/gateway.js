@@ -98,13 +98,13 @@ export default async function handler(req, res) {
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
             supabase.from('notifications').select('*').eq('user_id', dashUserUUID).order('created_at', { ascending: false }).limit(30),
-            supabase.from('institutes').select('id, institute_name') // Quick fetch for mapping
+            supabase.from('institutes').select('id, institute_name') 
         ]);
 
         const activeSubs = subsRes.data || [];
         const safeJobs = jobsRes.data || [];
         
-        // 🔥 This is the ONLY declaration of safeNotifs
+        // 🔥 This is the ONLY declaration of safeNotifs. Duplicate eliminated!
         const safeNotifs = notifsRes.data || [];
 
         const instMap = {};
