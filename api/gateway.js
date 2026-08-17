@@ -645,10 +645,10 @@ export default async function handler(req, res) {
       }
 
       case "addJobTimelineEvent": {
-        const { data: currentJob } = await supabase.from('jobs_queue').select('status, requester_id, operator_id').eq('job_code', payload.jobId).single();
+        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
 
-        // Inserts a clean row into the highly scalable table
+        // 1. Insert the new message as a standalone row into the scalable table
         const { error: insertErr } = await supabase.from('job_communications').insert([{
             job_code: payload.jobId,
             actor_name: payload.actorName || 'User',
@@ -659,23 +659,29 @@ export default async function handler(req, res) {
 
         if (insertErr) throw new Error("Failed to send message: " + insertErr.message);
 
-        if (payload.mode === 'revision') {
-            await supabase.from('jobs_queue').update({ status: 'Pending Revision' }).eq('job_code', payload.jobId);
-        }
+        // 2. 🔥 FIX: Update the job's meta_data so the UI job cards show the latest message preview!
+        let meta = typeof currentJob.meta_data === 'string' ? JSON.parse(currentJob.meta_data) : (currentJob.meta_data || {});
+        meta.latest_correction_note = payload.message; // Re-attaches the preview snippet
 
-        // Send Notification Alert
+        let updatePayload = { meta_data: meta, updated_at: new Date().toISOString() };
+        if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
+
+        // Update the main job queue row to trigger dashboard refreshes
+        await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
+
+        // 3. 🔥 FIX: The Notification Bridge (Properly mapped to target IDs)
         let targetId = null;
         let alertTitle = "";
         let alertMsg = "";
 
         if (payload.actorRole === 'operator') {
-            targetId = currentJob.requester_id; 
+            targetId = currentJob.requester_id; // Targets the Teacher
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
         } else if (currentJob.operator_id) {
-            targetId = currentJob.operator_id; 
+            targetId = currentJob.operator_id; // Targets the Operator
             alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
-            alertMsg = `Teacher added a note to job ${payload.jobId}.`;
+            alertMsg = `${payload.actorName} added a note to job ${payload.jobId}.`;
         }
 
         if (targetId) {
