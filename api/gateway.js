@@ -656,7 +656,7 @@ export default async function handler(req, res) {
         const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
 
-        // 1. Insert the new message as a standalone row into the scalable table
+        // 1. Insert the new message into the new scalable table
         const { error: insertErr } = await supabase.from('job_communications').insert([{
             job_code: payload.jobId,
             actor_name: payload.actorName || 'User',
@@ -667,35 +667,34 @@ export default async function handler(req, res) {
 
         if (insertErr) throw new Error("Failed to send message: " + insertErr.message);
 
-        // 2. 🔥 FIX: Update the job's meta_data so the UI job cards show the latest message preview!
+        // 2. Update meta_data so the Dashboard preview updates
         let meta = typeof currentJob.meta_data === 'string' ? JSON.parse(currentJob.meta_data) : (currentJob.meta_data || {});
-        meta.latest_correction_note = payload.message; // Re-attaches the preview snippet
-
+        meta.latest_correction_note = payload.message; 
+        
         let updatePayload = { meta_data: meta, updated_at: new Date().toISOString() };
         if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
-
-        // Update the main job queue row to trigger dashboard refreshes
         await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
 
-        // 3. 🔥 FIX: The Notification Bridge (Properly mapped to target IDs)
-        let targetId = null;
+        // 3. The Notification Bridge
+        let targetRolesForNotif = [];
         let alertTitle = "";
         let alertMsg = "";
 
         if (payload.actorRole === 'operator') {
-            targetId = currentJob.requester_id; // Targets the Teacher
+            targetRolesForNotif = [currentJob.requester_id]; // Target the Teacher
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
-        } else if (currentJob.operator_id) {
-            targetId = currentJob.operator_id; // Targets the Operator
+        } else {
+            // Target specific operator, or broadcast to ALL operators if unassigned!
+            targetRolesForNotif = currentJob.operator_id ? [currentJob.operator_id] : ['operator', 'system admin', 'super admin'];
             alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
             alertMsg = `${payload.actorName} added a note to job ${payload.jobId}.`;
         }
 
-        if (targetId) {
+        if (targetRolesForNotif.length > 0) {
             await supabase.from('notifications').insert([{
                 sender_id: userContext.id,
-                target_roles: [targetId], 
+                target_roles: targetRolesForNotif, 
                 title: alertTitle,
                 message: alertMsg
             }]);
