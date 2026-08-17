@@ -548,10 +548,39 @@ export default async function handler(req, res) {
         result = { success: true, refId: `TXN-${Date.now()}`, amount: payload.amount };
         break;
 
-      case "sendNotification":
-        await supabase.from('notifications').insert([{ sender_id: userContext.id, target_roles: [payload.targetRaw], title: payload.title, message: payload.msg }]);
-        result = { success: true, message: "Broadcast sent." };
+     // ==========================================
+      // MANUAL SYSTEM BROADCASTS
+      // ==========================================
+      case "sendNotification": {
+        let rolesArr = [];
+        let instScope = null; // null means global broadcast
+
+        // Map the UI dropdown to specific roles
+        if (payload.targetRaw === 'all_operators') rolesArr = ['operator'];
+        else if (payload.targetRaw === 'all_teachers') rolesArr = ['teacher'];
+        else if (payload.targetRaw === 'all_admins') rolesArr = ['admin'];
+        else if (payload.targetRaw === 'global') rolesArr = ['operator', 'teacher', 'admin', 'system admin', 'super admin'];
+        else if (payload.targetRaw === 'inst_teachers') { 
+            rolesArr = ['teacher']; 
+            instScope = userContext.user_metadata?.institute_id || null; 
+        }
+
+        // Drop 1 single row. The frontend WebSocket will fan it out to thousands of users!
+        await supabase.from('notifications').insert([{ 
+            sender_id: userContext.id, 
+            institute_id: instScope,
+            title: payload.title, 
+            message: payload.msg,
+            type: "system_broadcast",
+            status: "sent",
+            reference_id: "SYS-ALERT", // Generic tag so the frontend knows it's a system message
+            target_roles: rolesArr,
+            target_users: []
+        }]);
+
+        result = { success: true, message: "Broadcast deployed successfully." };
         break;
+      }
 
       case "markNotificationsRead":
         result = { success: true };
