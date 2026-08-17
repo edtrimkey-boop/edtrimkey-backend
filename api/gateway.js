@@ -72,7 +72,7 @@ export default async function handler(req, res) {
       // ==========================================
       // DASHBOARD DATA AGGREGATOR (ULTRA-FAST PARALLEL QUERIES)
       // ==========================================
- case "getDashboardPayload": {
+      case "getDashboardPayload": {
         const { data: userData, error: userErr } = await supabase
             .from('users')
             .select('*, institutes(*), operator_profiles(*)')
@@ -85,31 +85,28 @@ export default async function handler(req, res) {
         const dashInstUUID = userData.institute_id;
         const dashUserUUID = userData.id;
 
-        // 🔥 FIX 1: Allow operators to see their jobs AND unassigned jobs
+        // 🔥 Safe Job Query: Operators see assigned AND unassigned jobs
         let jobsQuery = supabase.from('jobs_queue').select('*').order('created_at', { ascending: false });
+        
         if (dashRole === 'teacher') jobsQuery = jobsQuery.eq('requester_id', dashUserUUID);
         else if (dashRole === 'admin') jobsQuery = jobsQuery.eq('institute_id', dashInstUUID);
         else if (dashRole === 'operator') jobsQuery = jobsQuery.or(`operator_id.eq.${dashUserUUID},operator_id.is.null`);
 
-        // 🔥 FIX 2: Correctly fetch notifications using the new user_id schema
+        // 🔥 Parallel Fetch + Safe Notifications (user_id mapping) + Institute Dictionary
         const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
             supabase.from('notifications').select('*').eq('user_id', dashUserUUID).order('created_at', { ascending: false }).limit(30),
-            supabase.from('institutes').select('id, institute_name') 
+            supabase.from('institutes').select('id, institute_name') // Quick fetch for mapping
         ]);
 
         const activeSubs = subsRes.data || [];
         const safeJobs = jobsRes.data || [];
-        const safeNotifs = notifsRes.data || []; // Safely mapped to your schema!
         
-        // 🔥 FIX 3: Safe Notification Filtering (Prevents array syntax crashes)
-        const safeNotifs = (notifsRes.data || []).filter(n => 
-            n.target_roles && (n.target_roles.includes(userData.role) || n.target_roles.includes(userData.id))
-        ).slice(0, 30);
+        // 🔥 This is the ONLY declaration of safeNotifs
+        const safeNotifs = notifsRes.data || [];
 
-        // 🔥 FIX 4: Build Institute Dictionary for Operators
         const instMap = {};
         if (allInstRes.data) {
             allInstRes.data.forEach(inst => {
@@ -168,7 +165,6 @@ export default async function handler(req, res) {
             }
           },
           data: {
-            // 🔥 FIXED: Safely maps Institute Name via instMap dictionary
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
                 id: j.job_code, date: j.created_at, inst: instMap[j.institute_id] || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', subject: j.meta_data?.subject || '', exam: j.meta_data?.test_type || '', deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '', latestCorrectionNote: j.meta_data?.latest_correction_note || ''
             })),
@@ -177,8 +173,6 @@ export default async function handler(req, res) {
             })),
             myBilling: [], instTeachers: [], instStudents: []
           },
-          
-         // 🔥 FIXED: Maps the reference_id perfectly to the frontend routing engine
           notifications: safeNotifs.map(n => ({ 
               title: n.title, 
               msg: n.message, 
@@ -186,6 +180,12 @@ export default async function handler(req, res) {
               isRead: n.status === 'read',
               refId: n.reference_id 
           })),
+          stats: {
+             academic: { today: safeJobs.filter(j => j.status === 'Pending').length, session: safeJobs.length, academic: safeJobs.length },
+             inst: { month: safeJobs.length, academic: safeJobs.length },
+             financial: { total: 0, pending: 0 }
+          }
+        };
 
         if (["super admin", "system admin", "all"].includes(dashRole)) {
             const [allInstRes, allOpsRes] = await Promise.all([
