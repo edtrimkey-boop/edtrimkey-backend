@@ -202,7 +202,7 @@ export default async function handler(req, res) {
         break;
       }
 
-     // ==========================================
+    // ==========================================
       // JOB CREATION - PAPERS
       // ==========================================
       case "submitPaperJob": { 
@@ -268,7 +268,6 @@ export default async function handler(req, res) {
         let assignedOperatorId = null;
         const { data: opData } = await supabase
             .from('users')
-            // 🔥 FIXED: Mapped precisely to your database columns "work_types"
             .select('id, operator_profiles!inner(subjects, work_types)')
             .eq('role', 'operator')
             .eq('status', 'Active');
@@ -278,14 +277,10 @@ export default async function handler(req, res) {
                 const profile = Array.isArray(op.operator_profiles) ? op.operator_profiles[0] : op.operator_profiles;
                 if (!profile) return false;
                 
-                // 🔥 FIXED: Safely flattens Postgres ARRAYs into lowercase strings
                 const safeWork = JSON.stringify(profile.work_types || []).toLowerCase();
                 const safeSubj = JSON.stringify(profile.subjects || []).toLowerCase();
                 
-                // Matches "paper"
                 const handlesWork = safeWork.includes('paper'); 
-                
-                // Strict Subject Matching
                 const handlesSubject = payload.subject 
                     ? (safeSubj.includes(payload.subject.toLowerCase()) || (payload.subject.toLowerCase() === 'mathematics' && safeSubj.includes('math'))) 
                     : true;
@@ -293,7 +288,6 @@ export default async function handler(req, res) {
                 return handlesWork && handlesSubject;
             });
             
-            // Randomly delegate to available matched operators to balance workload
             if (matchingOps.length > 0) {
                 assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].id;
             }
@@ -327,7 +321,7 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-       // 🔥 ENTERPRISE NOTIFICATION ROUTING
+        // 🔥 ENTERPRISE NOTIFICATION ROUTING
         let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
         if (!assignedOperatorId) {
             const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
@@ -349,7 +343,7 @@ export default async function handler(req, res) {
         
         result = { success: true, jobId: universalJobId };
         break;
-      }
+      } 
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
@@ -405,7 +399,6 @@ export default async function handler(req, res) {
         let assignedOperatorId = null; 
         const { data: opDocData } = await supabase
             .from('users')
-            // 🔥 FIXED: Mapped precisely to your database columns "work_types"
             .select('id, operator_profiles!inner(work_types)')
             .eq('role', 'operator')
             .eq('status', 'Active');
@@ -415,9 +408,7 @@ export default async function handler(req, res) {
                 const profile = Array.isArray(op.operator_profiles) ? op.operator_profiles[0] : op.operator_profiles;
                 if (!profile) return false;
                 
-                // 🔥 FIXED: Safely flattens Postgres ARRAYs into lowercase strings
                 const safeWork = JSON.stringify(profile.work_types || []).toLowerCase();
-                // Matches "report card", "admit card", etc.
                 return safeWork.includes(documentTypeStr.toLowerCase()) || safeWork.includes('card');
             });
             
@@ -467,8 +458,7 @@ export default async function handler(req, res) {
         result = { success: true, jobId: docJobId };
         break;
       }
-        
-    
+     
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
       // ==========================================
