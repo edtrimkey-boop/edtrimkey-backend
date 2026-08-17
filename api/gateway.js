@@ -328,23 +328,28 @@ export default async function handler(req, res) {
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
        // 🔥 ENTERPRISE NOTIFICATION ROUTING
-        if (assignedOperatorId) {
-            await supabase.from('notifications').insert([{
-                user_id: assignedOperatorId,
+        let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
+        if (!assignedOperatorId) {
+            const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
+            if (allOps) notifyIds = allOps.map(op => op.id);
+        }
+
+        if (notifyIds.length > 0) {
+            const notifPayloads = notifyIds.map(uid => ({
+                user_id: uid,
                 institute_id: instUUID,
-                title: "New Job Assigned",
-                message: `Job ${universalJobId} has been assigned to your queue.`,
+                title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
+                message: assignedOperatorId ? `Job ${universalJobId} has been assigned to your queue.` : `Job ${universalJobId} is pending assignment.`,
                 type: "job_assigned",
                 status: "unread",
                 reference_id: universalJobId
-            }]);
-        }
+            }));
             await supabase.from('notifications').insert(notifPayloads);
         }
         
         result = { success: true, jobId: universalJobId };
         break;
-      } 
+      }
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
@@ -440,20 +445,25 @@ export default async function handler(req, res) {
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
         // 🔥 ENTERPRISE NOTIFICATION ROUTING
-        if (assignedOperatorId) {
-            await supabase.from('notifications').insert([{
-                user_id: assignedOperatorId,
+        let docNotifyIds = assignedOperatorId ? [assignedOperatorId] : [];
+        if (!assignedOperatorId) {
+            const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
+            if (allOps) docNotifyIds = allOps.map(op => op.id);
+        }
+
+        if (docNotifyIds.length > 0) {
+            const notifPayloads = docNotifyIds.map(uid => ({
+                user_id: uid,
                 institute_id: docInstUUID,
-                title: "New Document Assigned",
-                message: `Document Job ${docJobId} has been assigned to your queue.`,
+                title: assignedOperatorId ? "New Document Assigned" : "New Document in Queue",
+                message: assignedOperatorId ? `Document Job ${docJobId} has been assigned to your queue.` : `Document ${docJobId} is pending assignment.`,
                 type: "job_assigned",
                 status: "unread",
                 reference_id: docJobId
-            }]);
-        }
+            }));
             await supabase.from('notifications').insert(notifPayloads);
         }
-        
+
         result = { success: true, jobId: docJobId };
         break;
       }
