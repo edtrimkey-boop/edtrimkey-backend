@@ -704,6 +704,7 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Message sent." };
         break;
+      } // <--- 🔥 THIS WAS THE FATAL MISSING BRACE!
 
       default:
         throw new Error("Invalid API Action requested: " + action);
