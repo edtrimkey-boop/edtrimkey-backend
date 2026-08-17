@@ -327,23 +327,18 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-        // 🔥 ENTERPRISE NOTIFICATION ROUTING (Broadcasts to all if unassigned)
-        let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
-        if (!assignedOperatorId) {
-            const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
-            if (allOps) notifyIds = allOps.map(op => op.id);
-        }
-
-        if (notifyIds.length > 0) {
-            const notifPayloads = notifyIds.map(uid => ({
-                user_id: uid,
+       // 🔥 ENTERPRISE NOTIFICATION ROUTING
+        if (assignedOperatorId) {
+            await supabase.from('notifications').insert([{
+                user_id: assignedOperatorId,
                 institute_id: instUUID,
-                title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
-                message: assignedOperatorId ? `Job ${universalJobId} has been assigned to your queue.` : `Job ${universalJobId} is pending assignment.`,
+                title: "New Job Assigned",
+                message: `Job ${universalJobId} has been assigned to your queue.`,
                 type: "job_assigned",
                 status: "unread",
                 reference_id: universalJobId
-            }));
+            }]);
+        }
             await supabase.from('notifications').insert(notifPayloads);
         }
         
@@ -444,23 +439,18 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-        // 🔥 ENTERPRISE NOTIFICATION ROUTING (Broadcasts to all if unassigned)
-        let notifyIds = assignedOperatorId ? [assignedOperatorId] : [];
-        if (!assignedOperatorId) {
-            const { data: allOps } = await supabase.from('users').select('id').eq('role', 'operator').eq('status', 'Active');
-            if (allOps) notifyIds = allOps.map(op => op.id);
-        }
-
-        if (notifyIds.length > 0) {
-            const notifPayloads = notifyIds.map(uid => ({
-                user_id: uid,
+        // 🔥 ENTERPRISE NOTIFICATION ROUTING
+        if (assignedOperatorId) {
+            await supabase.from('notifications').insert([{
+                user_id: assignedOperatorId,
                 institute_id: docInstUUID,
-                title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
-                message: assignedOperatorId ? `Job ${docJobId} has been assigned to your queue.` : `Job ${docJobId} is pending assignment.`,
+                title: "New Document Assigned",
+                message: `Document Job ${docJobId} has been assigned to your queue.`,
                 type: "job_assigned",
                 status: "unread",
                 reference_id: docJobId
-            }));
+            }]);
+        }
             await supabase.from('notifications').insert(notifPayloads);
         }
         
@@ -688,7 +678,7 @@ export default async function handler(req, res) {
         if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
         await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
 
-        // 3. 🔥 THE OMNICHANNEL NOTIFICATION BRIDGE
+      // 3. 🔥 THE OMNICHANNEL NOTIFICATION BRIDGE
         let targetUserId = null;
         let alertTitle = "";
         let alertMsg = "";
@@ -705,6 +695,7 @@ export default async function handler(req, res) {
             if (payload.mode === 'revision') notifType = "revision_alert";
         }
 
+        // Only send if the job is actually assigned to an operator!
         if (targetUserId) {
             await supabase.from('notifications').insert([{
                 user_id: targetUserId,
@@ -719,7 +710,6 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Message sent." };
         break;
-      } // <--- 🔥 THIS WAS THE FATAL MISSING BRACE!
 
       default:
         throw new Error("Invalid API Action requested: " + action);
