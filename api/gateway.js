@@ -325,6 +325,16 @@ export default async function handler(req, res) {
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
+       
+        // 🔥 ALERTS THE ASSIGNED OPERATOR INSTANTLY
+        if (assignedOperatorId) {
+            await supabase.from('notifications').insert([{
+                sender_id: dbUser.id,
+                target_roles: [assignedOperatorId],
+                title: "New Job Assigned",
+                message: `Job ${universalJobId} has been assigned to your queue.`
+            }]);
+        }
         
         result = { success: true, jobId: universalJobId };
         break;
@@ -423,6 +433,16 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
+        // 🔥 ALERTS THE ASSIGNED OPERATOR INSTANTLY
+        if (assignedOperatorId) {
+            await supabase.from('notifications').insert([{
+                sender_id: docUserObj.id,
+                target_roles: [assignedOperatorId],
+                title: "New Job Assigned",
+                message: `Document Job ${docJobId} has been assigned to your queue.`
+            }]);
+        }
+        
         result = { success: true, jobId: docJobId };
         break;
       }
@@ -591,25 +611,33 @@ export default async function handler(req, res) {
       }
         
       // ==========================================
-      // TIMELINE & COMMUNICATION ENGINE
+      // SCALABLE COMMUNICATION ENGINE
       // ==========================================
       case "getJobTimeline": {
-        const { data: tlJobData, error: tlJobErr } = await supabase
-            .from('jobs_queue')
-            .select('meta_data, status, created_at')
+        // Pulls instantly from the dedicated communications table
+        const { data: messages, error: msgErr } = await supabase
+            .from('job_communications')
+            .select('*')
             .eq('job_code', payload.jobId)
-            .single();
+            .order('created_at', { ascending: true });
 
-        if (tlJobErr || !tlJobData) throw new Error("Job not found.");
+        if (msgErr) throw new Error("Failed to load communications: " + msgErr.message);
 
-        // 🔥 FIX: Safely parse JSON whether it comes back as a string or an object
-        let meta = typeof tlJobData.meta_data === 'string' ? JSON.parse(tlJobData.meta_data) : (tlJobData.meta_data || {});
-        let historyArr = meta.history || [];
+        let historyArr = (messages || []).map(msg => ({
+            type: msg.message_type,
+            actorName: msg.actor_name,
+            actorRole: msg.actor_role,
+            message: msg.message,
+            timestamp: new Date(msg.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+        }));
 
-        // If history is completely empty, construct a dynamic "Genesis" event based on creation
+        // Genesis System Message
         if (historyArr.length === 0) {
-            let createdDate = new Date(tlJobData.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
-            historyArr.push({ type: 'system', actorName: 'System', actorRole: 'automation', message: 'Job created securely.', timestamp: createdDate });
+            const { data: jobData } = await supabase.from('jobs_queue').select('created_at').eq('job_code', payload.jobId).single();
+            if (jobData) {
+                let createdDate = new Date(jobData.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+                historyArr.push({ type: 'system', actorName: 'System', actorRole: 'automation', message: 'Job created securely.', timestamp: createdDate });
+            }
         }
 
         result = { success: true, history: historyArr };
@@ -617,44 +645,35 @@ export default async function handler(req, res) {
       }
 
       case "addJobTimelineEvent": {
-        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id').eq('job_code', payload.jobId).single();
+        const { data: currentJob } = await supabase.from('jobs_queue').select('status, requester_id, operator_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
 
-        // 🔥 FIX: Safely parse JSON to prevent overwriting existing arrays
-        let meta = typeof currentJob.meta_data === 'string' ? JSON.parse(currentJob.meta_data) : (currentJob.meta_data || {});
-        let timeline = meta.history || [];
+        // Inserts a clean row into the highly scalable table
+        const { error: insertErr } = await supabase.from('job_communications').insert([{
+            job_code: payload.jobId,
+            actor_name: payload.actorName || 'User',
+            actor_role: payload.actorRole || 'Unknown',
+            message_type: payload.mode === 'revision' ? 'revision' : 'note',
+            message: payload.message
+        }]);
 
-        const istTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+        if (insertErr) throw new Error("Failed to send message: " + insertErr.message);
 
-        const newEvent = {
-            type: payload.mode === 'revision' ? 'revision' : 'note',
-            actorName: payload.actorName || 'User',
-            actorRole: payload.actorRole || 'Unknown',
-            message: payload.message,
-            timestamp: istTime
-        };
+        if (payload.mode === 'revision') {
+            await supabase.from('jobs_queue').update({ status: 'Pending Revision' }).eq('job_code', payload.jobId);
+        }
 
-        timeline.push(newEvent);
-        meta.history = timeline;
-        
-        // Ensure legacy support for UI rendering
-        meta.latest_correction_note = payload.message;
-
-        let newStatus = payload.mode === 'revision' ? 'Pending Revision' : currentJob.status;
-
-        await supabase.from('jobs_queue').update({ meta_data: meta, status: newStatus }).eq('job_code', payload.jobId);
-
-        // The Notification Bridge
+        // Send Notification Alert
         let targetId = null;
         let alertTitle = "";
         let alertMsg = "";
 
         if (payload.actorRole === 'operator') {
-            targetId = currentJob.requester_id; // Route back to Teacher
+            targetId = currentJob.requester_id; 
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
         } else if (currentJob.operator_id) {
-            targetId = currentJob.operator_id; // Route to Assigned Operator
+            targetId = currentJob.operator_id; 
             alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
             alertMsg = `Teacher added a note to job ${payload.jobId}.`;
         }
