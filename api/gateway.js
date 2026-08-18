@@ -60,11 +60,29 @@ export default async function handler(req, res) {
         break;
 
       case "registerDeviceToken":
-        const { data: currUser } = await supabase.from('users').select('device_tokens').eq('auth_user_id', userContext.id).single();
-        let tokens = currUser?.device_tokens ? currUser.device_tokens.split(',') : [];
-        if (!tokens.includes(payload.token)) {
-            tokens.push(payload.token);
-            await supabase.from('users').update({ device_tokens: tokens.join(',') }).eq('auth_user_id', userContext.id);
+        const { data: dbUser } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+        
+        if (dbUser) {
+            // Check if this token already exists to prevent duplicate session rows
+            const { data: existingSession } = await supabase
+                .from('user_sessions')
+                .select('id')
+                .eq('fcm_token', payload.token)
+                .single();
+
+            if (!existingSession) {
+                await supabase.from('user_sessions').insert([{
+                    user_id: dbUser.id,
+                    fcm_token: payload.token,
+                    is_active: true,
+                    last_seen: new Date().toISOString()
+                }]);
+            } else {
+                // Optional: Update last_seen if the token already exists
+                await supabase.from('user_sessions')
+                    .update({ last_seen: new Date().toISOString(), is_active: true })
+                    .eq('id', existingSession.id);
+            }
         }
         result = { success: true };
         break;
@@ -550,7 +568,7 @@ export default async function handler(req, res) {
         result = { success: true, refId: `TXN-${Date.now()}`, amount: payload.amount };
         break;
 
-      // ==========================================
+     // ==========================================
       // MANUAL SYSTEM BROADCASTS & FCM PUSH
       // ==========================================
       case "sendNotification": {
@@ -572,42 +590,45 @@ export default async function handler(req, res) {
             instScope = senderObj.institute_id;
         }
 
-        // 🔥 2. FETCH TARGET TOKENS FOR FIREBASE CLOUD MESSAGING
-        let usersQuery = supabase.from('users')
-            .select('device_tokens')
-            .in('role', rolesArr)
-            .not('device_tokens', 'is', null);
-            
+        // 🔥 2. FETCH TARGET USERS
+        let usersQuery = supabase.from('users').select('id').in('role', rolesArr);
         if (instScope) usersQuery = usersQuery.eq('institute_id', instScope);
         
-        const { data: targetUsers, error: tokenErr } = await usersQuery;
-        if (tokenErr) console.error("Token Fetch Error:", tokenErr);
+        const { data: targetUsers, error: userErr } = await usersQuery;
+        if (userErr) console.error("User Fetch Error:", userErr);
         
+        const targetUserIds = targetUsers ? targetUsers.map(u => u.id) : [];
+
+        // 🔥 3. FETCH ACTIVE FCM TOKENS FROM user_sessions
         let allTokens = [];
-        if (targetUsers && targetUsers.length > 0) {
-            targetUsers.forEach(u => {
-                if (u.device_tokens && u.device_tokens.trim() !== "") {
-                    // Split comma-separated tokens and add to our master list
-                    const tokens = u.device_tokens.split(',').map(t => t.trim()).filter(t => t);
-                    allTokens.push(...tokens);
-                }
-            });
+        if (targetUserIds.length > 0) {
+            const { data: activeSessions, error: sessionErr } = await supabase
+                .from('user_sessions')
+                .select('fcm_token')
+                .in('user_id', targetUserIds)
+                .eq('is_active', true)
+                .not('fcm_token', 'is', null);
+
+            if (sessionErr) console.error("Session Fetch Error:", sessionErr);
+
+            if (activeSessions) {
+                // Extract tokens and filter out any empty strings
+                allTokens = activeSessions.map(s => s.fcm_token).filter(t => t.trim() !== "");
+            }
         }
 
-        // 🔥 3. FIRE THE OUT-OF-APP PUSH NOTIFICATION (FCM)
+        // 🔥 4. FIRE THE OUT-OF-APP PUSH NOTIFICATION (FCM)
         if (allTokens.length > 0) {
-            // Deduplicate tokens so users with multiple tabs open don't get spammed
             const uniqueTokens = [...new Set(allTokens)];
             try {
-                // This calls your imported Firebase library
                 await sendPushNotification(uniqueTokens, payload.title, payload.msg);
-                console.log(`FCM Deployed to ${uniqueTokens.length} devices.`);
+                console.log(`FCM Deployed to ${uniqueTokens.length} active sessions.`);
             } catch (fcmErr) {
                 console.error("FCM Broadcast Error:", fcmErr);
             }
         }
 
-        // 4. LOG TO DATABASE FOR IN-APP WEBSOCKET UI
+        // 5. LOG TO DATABASE FOR IN-APP WEBSOCKET UI
         const { error: notifErr } = await supabase.from('notifications').insert([{ 
             sender_id: senderObj ? senderObj.id : null,
             institute_id: instScope,
@@ -622,10 +643,10 @@ export default async function handler(req, res) {
 
         if (notifErr) console.error("Broadcast DB Error:", notifErr);
 
-        result = { success: true, message: "Broadcast deployed successfully to App and Devices." };
+        result = { success: true, message: "Broadcast deployed successfully." };
         break;
       }
-
+        
       case "markNotificationsRead":
         result = { success: true };
         break;
