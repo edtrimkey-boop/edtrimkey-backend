@@ -331,25 +331,26 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-        // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
+       // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
         let targetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let targetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
 
-        await supabase.from('notifications').insert([{
-            sender_id: userContext.id,         // Who sent it
+        const { error: notifErr } = await supabase.from('notifications').insert([{
+            sender_id: dbUser.id,              // 🔥 FIXED: Mapped securely to public.users.id
             institute_id: instUUID,            // Scope it to the institute
             title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
             message: assignedOperatorId ? `Job ${universalJobId} has been assigned to your queue.` : `Job ${universalJobId} is pending assignment.`,
             type: "job_assigned",
             status: "sent",
             reference_id: universalJobId,
-            target_roles: targetRoleArr,       // Targets whole groups
-            target_users: targetUserArr        // Targets specific users
+            target_roles: targetRoleArr,       
+            target_users: targetUserArr        
         }]);
+
+        if (notifErr) console.error("Notification DB Error (Paper):", notifErr);
         
         result = { success: true, jobId: universalJobId };
         break;
-      } 
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
@@ -445,8 +446,8 @@ export default async function handler(req, res) {
         let docTargetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let docTargetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
 
-        await supabase.from('notifications').insert([{
-            sender_id: userContext.id,
+        const { error: notifErr } = await supabase.from('notifications').insert([{
+            sender_id: docUserObj.id,          // 🔥 FIXED: Mapped securely to public.users.id
             institute_id: docInstUUID,
             title: assignedOperatorId ? "New Document Assigned" : "New Document in Queue",
             message: assignedOperatorId ? `Document Job ${docJobId} has been assigned to your queue.` : `Document ${docJobId} is pending assignment.`,
@@ -457,9 +458,10 @@ export default async function handler(req, res) {
             target_users: docTargetUserArr
         }]);
 
+        if (notifErr) console.error("Notification DB Error (Doc):", notifErr);
+
         result = { success: true, jobId: docJobId };
         break;
-      }
      
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
