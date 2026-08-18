@@ -551,12 +551,13 @@ export default async function handler(req, res) {
         break;
 
       // ==========================================
-      // MANUAL SYSTEM BROADCASTS
+      // MANUAL SYSTEM BROADCASTS & FCM PUSH
       // ==========================================
       case "sendNotification": {
         let rolesArr = [];
         let instScope = null; 
 
+        // 1. Determine Scope
         if (payload.targetRaw === 'all_operators') rolesArr = ['operator'];
         else if (payload.targetRaw === 'all_teachers') rolesArr = ['teacher'];
         else if (payload.targetRaw === 'all_admins') rolesArr = ['admin'];
@@ -571,6 +572,42 @@ export default async function handler(req, res) {
             instScope = senderObj.institute_id;
         }
 
+        // 🔥 2. FETCH TARGET TOKENS FOR FIREBASE CLOUD MESSAGING
+        let usersQuery = supabase.from('users')
+            .select('device_tokens')
+            .in('role', rolesArr)
+            .not('device_tokens', 'is', null);
+            
+        if (instScope) usersQuery = usersQuery.eq('institute_id', instScope);
+        
+        const { data: targetUsers, error: tokenErr } = await usersQuery;
+        if (tokenErr) console.error("Token Fetch Error:", tokenErr);
+        
+        let allTokens = [];
+        if (targetUsers && targetUsers.length > 0) {
+            targetUsers.forEach(u => {
+                if (u.device_tokens && u.device_tokens.trim() !== "") {
+                    // Split comma-separated tokens and add to our master list
+                    const tokens = u.device_tokens.split(',').map(t => t.trim()).filter(t => t);
+                    allTokens.push(...tokens);
+                }
+            });
+        }
+
+        // 🔥 3. FIRE THE OUT-OF-APP PUSH NOTIFICATION (FCM)
+        if (allTokens.length > 0) {
+            // Deduplicate tokens so users with multiple tabs open don't get spammed
+            const uniqueTokens = [...new Set(allTokens)];
+            try {
+                // This calls your imported Firebase library
+                await sendPushNotification(uniqueTokens, payload.title, payload.msg);
+                console.log(`FCM Deployed to ${uniqueTokens.length} devices.`);
+            } catch (fcmErr) {
+                console.error("FCM Broadcast Error:", fcmErr);
+            }
+        }
+
+        // 4. LOG TO DATABASE FOR IN-APP WEBSOCKET UI
         const { error: notifErr } = await supabase.from('notifications').insert([{ 
             sender_id: senderObj ? senderObj.id : null,
             institute_id: instScope,
@@ -585,7 +622,7 @@ export default async function handler(req, res) {
 
         if (notifErr) console.error("Broadcast DB Error:", notifErr);
 
-        result = { success: true, message: "Broadcast deployed successfully." };
+        result = { success: true, message: "Broadcast deployed successfully to App and Devices." };
         break;
       }
 
