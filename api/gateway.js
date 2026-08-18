@@ -85,24 +85,22 @@ export default async function handler(req, res) {
         const dashInstUUID = userData.institute_id;
         const dashUserUUID = userData.id;
 
-      // 🔥 ENTERPRISE THIN-CLIENT ARCHITECTURE: Max 50 Jobs on initial load
+        // 🔥 ENTERPRISE THIN-CLIENT ARCHITECTURE: Max 50 Jobs on initial load
         let jobsQuery = supabase.from('jobs_queue')
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(50); // Prevents massive payload crashes for Operators
+            .limit(50);
         
         if (dashRole === 'teacher') jobsQuery = jobsQuery.eq('requester_id', dashUserUUID);
         else if (dashRole === 'admin') jobsQuery = jobsQuery.eq('institute_id', dashInstUUID);
         else if (dashRole === 'operator') jobsQuery = jobsQuery.or(`operator_id.eq.${dashUserUUID},operator_id.is.null`);
 
-        // 🔥 FIX: Read notifications from the new Pub/Sub Array columns
         const notifQuery = supabase.from('notifications')
             .select('*')
             .or(`target_users.cs.{${dashUserUUID}},target_roles.cs.{${dashRole}}`)
             .order('created_at', { ascending: false })
             .limit(30);
 
-        // Parallel Fetch
         const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
@@ -113,8 +111,6 @@ export default async function handler(req, res) {
 
         const activeSubs = subsRes.data || [];
         const safeJobs = jobsRes.data || [];
-        
-        // 🔥 This is the ONLY declaration of safeNotifs. Duplicate eliminated!
         const safeNotifs = notifsRes.data || [];
 
         const instMap = {};
@@ -126,7 +122,6 @@ export default async function handler(req, res) {
         
         let formattedTeacherSubjects = teacherRes.data?.subject_handles ? (Array.isArray(teacherRes.data.subject_handles) ? teacherRes.data.subject_handles.join(', ') : teacherRes.data.subject_handles) : null;
 
-        // Parse Subscription Features
         let papersTotal = 0, papersLeft = 0, rcTotal = 0, rcLeft = 0, acTotal = 0, acLeft = 0, smsTotal = 0, smsRemaining = 0;
         let attEnabled = "NO", admEnabled = "NO", feeEnabled = "NO";
         let mainPlan = "Standard", mainStart = "N/A", mainRenew = "N/A", mainValue = null;
@@ -212,7 +207,7 @@ export default async function handler(req, res) {
         break;
       }
 
-    // ==========================================
+      // ==========================================
       // JOB CREATION - PAPERS
       // ==========================================
       case "submitPaperJob": { 
@@ -220,7 +215,6 @@ export default async function handler(req, res) {
         if (!dbUser) throw new Error("Security Error: Account mapping invalid.");
         const instUUID = dbUser.institute_id;
 
-        // Fetch Inst & Feature Quota in Parallel
         const [instRes, featureRes] = await Promise.all([
             supabase.from('institutes').select('*').eq('id', instUUID).single(),
             supabase.from('subscription_features').select('*, subscriptions!inner(status, payment_status, expiry_date)').eq('subscriptions.institute_id', instUUID).eq('subscriptions.status', 'Active').eq('feature_key', 'paper_formatter').single()
@@ -238,7 +232,6 @@ export default async function handler(req, res) {
         const jobTypeStr = payload.jobType || "Paper";
         const currentYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // BULLETPROOF HIGH-SPEED ID GENERATOR
         const idPrefix = `${instCode}-PPR-${currentYearStr}-`;
         const { data: existingJobs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${idPrefix}%`);
         
@@ -274,7 +267,6 @@ export default async function handler(req, res) {
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
 
-        // 🔥 HIGH-SPEED OPERATOR ASSIGNMENT
         let assignedOperatorId = null;
         const { data: opData } = await supabase
             .from('users')
@@ -331,13 +323,12 @@ export default async function handler(req, res) {
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
         await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
        
-       // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
         let targetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let targetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
 
         const { error: notifErr } = await supabase.from('notifications').insert([{
-            sender_id: dbUser.id,              // 🔥 FIXED: Mapped securely to public.users.id
-            institute_id: instUUID,            // Scope it to the institute
+            sender_id: dbUser.id,
+            institute_id: instUUID,
             title: assignedOperatorId ? "New Job Assigned" : "New Job in Queue",
             message: assignedOperatorId ? `Job ${universalJobId} has been assigned to your queue.` : `Job ${universalJobId} is pending assignment.`,
             type: "job_assigned",
@@ -379,7 +370,6 @@ export default async function handler(req, res) {
         const docTypeCode = jobTypeCodes[documentTypeStr] || "DOC";
         const currentDocYearStr = new Date().getFullYear().toString().slice(-2);
 
-        // BULLETPROOF HIGH-SPEED ID GENERATOR FOR DOCUMENTS
         const docPrefix = `${docInstCode}-${docTypeCode}-${currentDocYearStr}-`;
         const { data: existingDocs } = await supabase.from('jobs_queue').select('job_code').ilike('job_code', `${docPrefix}%`);
         
@@ -403,7 +393,6 @@ export default async function handler(req, res) {
         const docDeadlineDate = new Date();
         docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
 
-        // 🔥 HIGH-SPEED OPERATOR ASSIGNMENT
         let assignedOperatorId = null; 
         const { data: opDocData } = await supabase
             .from('users')
@@ -443,12 +432,11 @@ export default async function handler(req, res) {
 
         await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
 
-        // 🔥 ENTERPRISE PUB/SUB BROADCAST (1 Row Only!)
         let docTargetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let docTargetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
 
         const { error: notifErr } = await supabase.from('notifications').insert([{
-            sender_id: docUserObj.id,          // 🔥 FIXED: Mapped securely to public.users.id
+            sender_id: docUserObj.id,
             institute_id: docInstUUID,
             title: assignedOperatorId ? "New Document Assigned" : "New Document in Queue",
             message: assignedOperatorId ? `Document Job ${docJobId} has been assigned to your queue.` : `Document ${docJobId} is pending assignment.`,
@@ -562,7 +550,7 @@ export default async function handler(req, res) {
         result = { success: true, refId: `TXN-${Date.now()}`, amount: payload.amount };
         break;
 
-     // ==========================================
+      // ==========================================
       // MANUAL SYSTEM BROADCASTS
       // ==========================================
       case "sendNotification": {
@@ -578,14 +566,13 @@ export default async function handler(req, res) {
             instScope = userContext.user_metadata?.institute_id || null; 
         }
 
-        // 🔥 Fetch correct public sender ID to prevent Foreign Key Rejections
         const { data: senderObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         if (payload.targetRaw === 'inst_teachers' && !instScope && senderObj) {
             instScope = senderObj.institute_id;
         }
 
         const { error: notifErr } = await supabase.from('notifications').insert([{ 
-            sender_id: senderObj ? senderObj.id : null, // 🔥 FIXED
+            sender_id: senderObj ? senderObj.id : null,
             institute_id: instScope,
             title: payload.title, 
             message: payload.msg,
@@ -613,7 +600,6 @@ export default async function handler(req, res) {
       case "download":
         result = { success: true, url: payload.row };
         break;
-
         
       // ==========================================
       // STATUS MANAGEMENT
@@ -622,7 +608,6 @@ export default async function handler(req, res) {
         const { jobId, status } = payload;
         if (!jobId || !status) throw new Error("Missing parameters.");
         
-        // 1. Fetch current meta_data to safely append the timeline history
         const { data: jobData, error: fetchErr } = await supabase
             .from('jobs_queue')
             .select('meta_data')
@@ -636,7 +621,6 @@ export default async function handler(req, res) {
         let meta = typeof jobData.meta_data === 'string' ? JSON.parse(jobData.meta_data) : (jobData.meta_data || {});
         let timeline = meta.history || [];
         
-        // Prevent duplicate spam if they click the button multiple times
         const lastMsg = timeline.length > 0 ? timeline[timeline.length - 1].message : "";
         if (!lastMsg.includes(`updated to ${status}`)) {
             timeline.push({
@@ -650,7 +634,6 @@ export default async function handler(req, res) {
         
         meta.history = timeline;
 
-        // 2. Perform ONE single, atomic database update
         const { error: updateErr } = await supabase
             .from('jobs_queue')
             .update({ status: status, meta_data: meta })
@@ -666,7 +649,6 @@ export default async function handler(req, res) {
       // SCALABLE COMMUNICATION ENGINE
       // ==========================================
       case "getJobTimeline": {
-        // Pulls instantly from the dedicated communications table
         const { data: messages, error: msgErr } = await supabase
             .from('job_communications')
             .select('*')
@@ -683,7 +665,6 @@ export default async function handler(req, res) {
             timestamp: new Date(msg.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
         }));
 
-        // Genesis System Message
         if (historyArr.length === 0) {
             const { data: jobData } = await supabase.from('jobs_queue').select('created_at').eq('job_code', payload.jobId).single();
             if (jobData) {
@@ -697,10 +678,9 @@ export default async function handler(req, res) {
       }
 
       case "addJobTimelineEvent": {
-        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id').eq('job_code', payload.jobId).single();
+        const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id, institute_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
 
-        // 1. Insert the new message into the new scalable table
         const { error: insertErr } = await supabase.from('job_communications').insert([{
             job_code: payload.jobId,
             actor_name: payload.actorName || 'User',
@@ -711,7 +691,6 @@ export default async function handler(req, res) {
 
         if (insertErr) throw new Error("Failed to send message: " + insertErr.message);
 
-        // 2. Update meta_data so the Dashboard preview updates
         let meta = typeof currentJob.meta_data === 'string' ? JSON.parse(currentJob.meta_data) : (currentJob.meta_data || {});
         meta.latest_correction_note = payload.message; 
         
@@ -725,38 +704,31 @@ export default async function handler(req, res) {
         let alertMsg = "";
         let notifType = payload.mode === 'revision' ? "revision_alert" : "new_message";
 
-        // 1. Fetch the sender's true public ID and Role to prevent Foreign Key errors
         const { data: senderObj } = await supabase.from('users').select('id, role').eq('auth_user_id', userContext.id).single();
         const senderPublicId = senderObj ? senderObj.id : null;
         const senderRole = senderObj ? String(senderObj.role).toLowerCase() : 'unknown';
 
-        // 2. Smart Routing Logic: Who gets the notification?
         if (senderRole === 'operator') {
-            // If Operator replies -> Notify the Teacher
             if (currentJob.requester_id) targetUserArr.push(currentJob.requester_id);
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
         } 
         else if (senderRole === 'teacher') {
-            // If Teacher replies/revises -> Notify the Operator
             if (currentJob.operator_id) targetUserArr.push(currentJob.operator_id);
             alertTitle = payload.mode === 'revision' ? "Revision Requested 🔴" : "New Note from Teacher";
             alertMsg = `${payload.actorName} added a note to job ${payload.jobId}.`;
         } 
         else {
-            // If Admin or Super Admin jumps in -> Notify BOTH Teacher and Operator!
             if (currentJob.requester_id) targetUserArr.push(currentJob.requester_id);
             if (currentJob.operator_id) targetUserArr.push(currentJob.operator_id);
             alertTitle = "Admin Message on Job " + payload.jobId;
             alertMsg = `${payload.actorName} added a note to the workspace.`;
         }
 
-        // 3. Failsafe: Remove the sender from the target list (You shouldn't get a notification for your own message)
         if (senderPublicId) {
             targetUserArr = targetUserArr.filter(id => id !== senderPublicId);
         }
 
-        // 4. Dispatch the Notification
         if (targetUserArr.length > 0) {
             const { error: notifErr } = await supabase.from('notifications').insert([{
                 sender_id: senderPublicId, 
@@ -775,7 +747,11 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Message sent." };
         break;
-      } // <--- Properly closes the case
+      }
+
+      default:
+        throw new Error("Invalid API Action requested: " + action);
+    }
 
     return res.status(200).json(result);
 
