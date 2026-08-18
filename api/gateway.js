@@ -351,6 +351,7 @@ export default async function handler(req, res) {
         
         result = { success: true, jobId: universalJobId };
         break;
+      }
 
       // ==========================================
       // JOB CREATION - DOCUMENTS
@@ -462,6 +463,7 @@ export default async function handler(req, res) {
 
         result = { success: true, jobId: docJobId };
         break;
+      }
      
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
