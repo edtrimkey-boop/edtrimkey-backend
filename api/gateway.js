@@ -719,29 +719,47 @@ export default async function handler(req, res) {
         if (payload.mode === 'revision') updatePayload.status = 'Pending Revision';
         await supabase.from('jobs_queue').update(updatePayload).eq('job_code', payload.jobId);
 
-        // 🔥 THE OMNICHANNEL PUB/SUB BRIDGE
+        // 🔥 THE SMART OMNICHANNEL PUB/SUB BRIDGE (Multi-User Chat Routing)
         let targetUserArr = [];
         let alertTitle = "";
         let alertMsg = "";
-        let notifType = "new_message";
+        let notifType = payload.mode === 'revision' ? "revision_alert" : "new_message";
 
-        if (payload.actorRole === 'operator') {
-            targetUserArr = [currentJob.requester_id]; // Target Teacher
+        // 1. Fetch the sender's true public ID and Role to prevent Foreign Key errors
+        const { data: senderObj } = await supabase.from('users').select('id, role').eq('auth_user_id', userContext.id).single();
+        const senderPublicId = senderObj ? senderObj.id : null;
+        const senderRole = senderObj ? String(senderObj.role).toLowerCase() : 'unknown';
+
+        // 2. Smart Routing Logic: Who gets the notification?
+        if (senderRole === 'operator') {
+            // If Operator replies -> Notify the Teacher
+            if (currentJob.requester_id) targetUserArr.push(currentJob.requester_id);
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
-        } else {
-            if (currentJob.operator_id) targetUserArr = [currentJob.operator_id]; // Target Operator
-            alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
+        } 
+        else if (senderRole === 'teacher') {
+            // If Teacher replies/revises -> Notify the Operator
+            if (currentJob.operator_id) targetUserArr.push(currentJob.operator_id);
+            alertTitle = payload.mode === 'revision' ? "Revision Requested 🔴" : "New Note from Teacher";
             alertMsg = `${payload.actorName} added a note to job ${payload.jobId}.`;
-            if (payload.mode === 'revision') notifType = "revision_alert";
+        } 
+        else {
+            // If Admin or Super Admin jumps in -> Notify BOTH Teacher and Operator!
+            if (currentJob.requester_id) targetUserArr.push(currentJob.requester_id);
+            if (currentJob.operator_id) targetUserArr.push(currentJob.operator_id);
+            alertTitle = "Admin Message on Job " + payload.jobId;
+            alertMsg = `${payload.actorName} added a note to the workspace.`;
         }
 
-        if (targetUserArr.length > 0) {
-            // 🔥 Fetch correct public sender ID to prevent Foreign Key Rejections
-            const { data: senderObj } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+        // 3. Failsafe: Remove the sender from the target list (You shouldn't get a notification for your own message)
+        if (senderPublicId) {
+            targetUserArr = targetUserArr.filter(id => id !== senderPublicId);
+        }
 
+        // 4. Dispatch the Notification
+        if (targetUserArr.length > 0) {
             const { error: notifErr } = await supabase.from('notifications').insert([{
-                sender_id: senderObj ? senderObj.id : null, // 🔥 FIXED
+                sender_id: senderPublicId, 
                 institute_id: currentJob.institute_id || null,
                 title: alertTitle,
                 message: alertMsg,
@@ -757,11 +775,7 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Message sent." };
         break;
-      } // <--- 🔥 THIS IS THE CLOSING BRACE THAT WAS MISSING!
-
-      default:
-        throw new Error("Invalid API Action requested: " + action);
-    } // <-- Properly closes the switch statement
+      } // <--- Properly closes the case
 
     return res.status(200).json(result);
 
