@@ -85,19 +85,29 @@ export default async function handler(req, res) {
         const dashInstUUID = userData.institute_id;
         const dashUserUUID = userData.id;
 
-        // 🔥 Safe Job Query: Operators see assigned AND unassigned jobs
-        let jobsQuery = supabase.from('jobs_queue').select('*').order('created_at', { ascending: false });
+      // 🔥 ENTERPRISE THIN-CLIENT ARCHITECTURE: Max 50 Jobs on initial load
+        let jobsQuery = supabase.from('jobs_queue')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(50); // Prevents massive payload crashes for Operators
         
         if (dashRole === 'teacher') jobsQuery = jobsQuery.eq('requester_id', dashUserUUID);
         else if (dashRole === 'admin') jobsQuery = jobsQuery.eq('institute_id', dashInstUUID);
         else if (dashRole === 'operator') jobsQuery = jobsQuery.or(`operator_id.eq.${dashUserUUID},operator_id.is.null`);
 
-        // 🔥 Parallel Fetch + Safe Notifications (user_id mapping) + Institute Dictionary
+        // 🔥 FIX: Read notifications from the new Pub/Sub Array columns
+        const notifQuery = supabase.from('notifications')
+            .select('*')
+            .or(`target_users.cs.{${dashUserUUID}},target_roles.cs.{${dashRole}}`)
+            .order('created_at', { ascending: false })
+            .limit(30);
+
+        // Parallel Fetch
         const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
-            supabase.from('notifications').select('*').eq('user_id', dashUserUUID).order('created_at', { ascending: false }).limit(30),
+            notifQuery,
             supabase.from('institutes').select('id, institute_name') 
         ]);
 
