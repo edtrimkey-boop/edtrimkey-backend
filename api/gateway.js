@@ -565,9 +565,8 @@ export default async function handler(req, res) {
       // ==========================================
       case "sendNotification": {
         let rolesArr = [];
-        let instScope = null; // null means global broadcast
+        let instScope = null; 
 
-        // Map the UI dropdown to specific roles
         if (payload.targetRaw === 'all_operators') rolesArr = ['operator'];
         else if (payload.targetRaw === 'all_teachers') rolesArr = ['teacher'];
         else if (payload.targetRaw === 'all_admins') rolesArr = ['admin'];
@@ -577,18 +576,25 @@ export default async function handler(req, res) {
             instScope = userContext.user_metadata?.institute_id || null; 
         }
 
-        // Drop 1 single row. The frontend WebSocket will fan it out to thousands of users!
-        await supabase.from('notifications').insert([{ 
-            sender_id: userContext.id, 
+        // 🔥 Fetch correct public sender ID to prevent Foreign Key Rejections
+        const { data: senderObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
+        if (payload.targetRaw === 'inst_teachers' && !instScope && senderObj) {
+            instScope = senderObj.institute_id;
+        }
+
+        const { error: notifErr } = await supabase.from('notifications').insert([{ 
+            sender_id: senderObj ? senderObj.id : null, // 🔥 FIXED
             institute_id: instScope,
             title: payload.title, 
             message: payload.msg,
             type: "system_broadcast",
             status: "sent",
-            reference_id: "SYS-ALERT", // Generic tag so the frontend knows it's a system message
+            reference_id: "SYS-ALERT", 
             target_roles: rolesArr,
             target_users: []
         }]);
+
+        if (notifErr) console.error("Broadcast DB Error:", notifErr);
 
         result = { success: true, message: "Broadcast deployed successfully." };
         break;
@@ -718,21 +724,22 @@ export default async function handler(req, res) {
         let notifType = "new_message";
 
         if (payload.actorRole === 'operator') {
-            targetUserArr = [currentJob.requester_id]; // Target the specific Teacher
+            targetUserArr = [currentJob.requester_id]; // Target Teacher
             alertTitle = "New Reply from Operator";
             alertMsg = `${payload.actorName} replied to job ${payload.jobId}.`;
         } else {
-            // Target the specific Operator
-            if (currentJob.operator_id) targetUserArr = [currentJob.operator_id]; 
+            if (currentJob.operator_id) targetUserArr = [currentJob.operator_id]; // Target Operator
             alertTitle = payload.mode === 'revision' ? "Revision Requested" : "New Note Added";
             alertMsg = `${payload.actorName} added a note to job ${payload.jobId}.`;
             if (payload.mode === 'revision') notifType = "revision_alert";
         }
 
-        // Only send if we have a target
         if (targetUserArr.length > 0) {
-            await supabase.from('notifications').insert([{
-                sender_id: userContext.id,
+            // 🔥 Fetch correct public sender ID to prevent Foreign Key Rejections
+            const { data: senderObj } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+
+            const { error: notifErr } = await supabase.from('notifications').insert([{
+                sender_id: senderObj ? senderObj.id : null, // 🔥 FIXED
                 institute_id: currentJob.institute_id || null,
                 title: alertTitle,
                 message: alertMsg,
@@ -742,11 +749,12 @@ export default async function handler(req, res) {
                 target_roles: [],
                 target_users: targetUserArr
             }]);
+            
+            if (notifErr) console.error("Notification DB Error (Chat):", notifErr);
         }
 
         result = { success: true, message: "Message sent." };
         break;
-      } // <--- 🔥 THIS IS THE CLOSING BRACE THAT WAS MISSING!
 
       default:
         throw new Error("Invalid API Action requested: " + action);
