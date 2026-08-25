@@ -59,17 +59,30 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
 
-      // 🔥 SAVES THE FCM PUSH TOKEN TO THE ACTIVE DEVICE ROW
+      // 🔥 STRICT FCM REGISTRATION ENGINE
       case "registerDeviceToken": {
-        if (payload.sessionId && payload.fcmToken) {
-            await supabase.from('user_sessions')
-                .update({ fcm_token: payload.token })
-                .eq('id', payload.sessionId);
+        // 1. Force a failure if the payload is missing data
+        if (!payload.sessionId) throw new Error("Backend Error: Session ID is missing.");
+        if (!payload.fcmToken) throw new Error("Backend Error: FCM Token is missing.");
+
+        // 2. Perform the update AND force Supabase to return the row (.select)
+        const { data: updatedRow, error: updateErr } = await supabase
+            .from('user_sessions')
+            .update({ fcm_token: payload.fcmToken })
+            .eq('id', payload.sessionId)
+            .select(); // This ensures we get proof it actually updated
+
+        // 3. Catch Supabase Schema/Database Errors
+        if (updateErr) throw new Error("Supabase Error: " + updateErr.message);
+
+        // 4. Catch "Ghost Update" Errors (It tried to update, but the row didn't exist)
+        if (!updatedRow || updatedRow.length === 0) {
+            throw new Error(`Database Error: Session ID [${payload.sessionId}] does not exist in user_sessions table.`);
         }
+
         result = { success: true };
         break;
       }
-        
       // ==========================================
       // DASHBOARD DATA AGGREGATOR (ULTRA-FAST PARALLEL QUERIES)
       // ==========================================
