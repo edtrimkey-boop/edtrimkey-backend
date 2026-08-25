@@ -256,6 +256,49 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
       }
+
+        // ==========================================
+      // DEVICE FINGERPRINTING & SESSION TRACKING
+      // ==========================================
+      case "syncDeviceSession": {
+        const { data: dbUser } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+        if (!dbUser) throw new Error("Security Error: User not found.");
+
+        let currentSessionId = payload.sessionId;
+
+        // Try to update the existing device session if we have an ID
+        if (currentSessionId) {
+            const { data: existing } = await supabase.from('user_sessions').select('id').eq('id', currentSessionId).single();
+            if (existing) {
+                await supabase.from('user_sessions').update({
+                    device_name: payload.deviceName,
+                    device_type: payload.deviceType,
+                    browser: payload.browser,
+                    ip_address: payload.ipAddress,
+                    last_seen: new Date().toISOString()
+                }).eq('id', currentSessionId);
+                
+                result = { success: true, sessionId: currentSessionId };
+                break;
+            }
+        }
+
+        // If no session ID exists (or the old one was deleted), create a brand new session row
+        const { data: newSession, error: insertErr } = await supabase.from('user_sessions').insert([{
+            user_id: dbUser.id,
+            device_name: payload.deviceName,
+            device_type: payload.deviceType,
+            browser: payload.browser,
+            ip_address: payload.ipAddress,
+            is_active: true,
+            last_seen: new Date().toISOString()
+        }]).select('id').single();
+
+        if (insertErr) throw new Error("Failed to log session: " + insertErr.message);
+
+        result = { success: true, sessionId: newSession.id };
+        break;
+      }
         
       // ==========================================
       // JOB CREATION - PAPERS
