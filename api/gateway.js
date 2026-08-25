@@ -234,7 +234,29 @@ export default async function handler(req, res) {
         }
         break;
       }
+        
+      case "updatePreferences": {
+        if (!payload.fcmToken) throw new Error("No active device session found to update.");
 
+        // 1. Fetch the specific device session
+        const { data: sessionData } = await supabase
+            .from('user_sessions')
+            .select('id, preferences')
+            .eq('fcm_token', payload.fcmToken)
+            .single();
+            
+        if (!sessionData) throw new Error("Session not found in database.");
+
+        // 2. Merge and save the new preferences
+        const currentPrefs = sessionData.preferences || { push: false, whatsapp: false, sms: false, email: false };
+        currentPrefs[payload.type] = payload.value;
+        
+        await supabase.from('user_sessions').update({ preferences: currentPrefs }).eq('id', sessionData.id);
+        
+        result = { success: true };
+        break;
+      }
+        
       // ==========================================
       // JOB CREATION - PAPERS
       // ==========================================
