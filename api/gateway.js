@@ -510,7 +510,7 @@ export default async function handler(req, res) {
       case "submitOperatorRegistration":
         const { data: opAuth } = await supabase.auth.admin.createUser({ email: payload.email, password: "TKoperator123", email_confirm: true });
         const { data: newOp } = await supabase.from('users').insert([{ auth_user_id: opAuth.user.id, email: payload.email, full_name: payload.name, role: 'operator', status: 'Active', profile_pic_url: payload.photoUrl }]).select().single();
-        await supabase.from('operator_profiles').insert([{ user_id: newOp.id, subjects: payload.subjects, work_type: payload.workType, rate_paper: payload.ratePaper, rate_unit: payload.rateUnit, upi: payload.upi }]);
+        await supabase.from('operator_profiles').insert([{ user_id: newOp.id, subjects: payload.subjects, work_type: payload.workType, rate_paper: payload.ratePaper, rate_unit: payload.rateUnit, upi_id: payload.upi }]);
         result = { success: true };
         break;
 
@@ -705,11 +705,20 @@ export default async function handler(req, res) {
 
 case "updateOperatorUpi": {
         // 1. Find the internal user ID using the secure Auth Context
-        const { data: opUser } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+        const { data: opUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('auth_user_id', userContext.id)
+            .single();
+
         if (!opUser) throw new Error("Security Error: Operator account not found.");
 
-        // 2. Update the UPI ID directly in the operator_profiles table
-        const { error: upiErr } = await supabase.from('operator_profiles').update({ upi: payload.upi }).eq('user_id', opUser.id);
+        // 2. Update the upi_id column in operator_profiles
+        const { error: upiErr } = await supabase
+            .from('operator_profiles')
+            .update({ upi_id: payload.upi })
+            .eq('user_id', opUser.id);
+
         if (upiErr) throw new Error("Database Error: " + upiErr.message);
 
         // 3. Return success to the frontend
