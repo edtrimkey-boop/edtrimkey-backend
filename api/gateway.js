@@ -236,16 +236,16 @@ export default async function handler(req, res) {
       }
         
       case "updatePreferences": {
-        if (!payload.fcmToken) throw new Error("No active device session found to update.");
+        if (!payload.sessionId) throw new Error("No active device session ID found. Please refresh the dashboard.");
 
-        // 1. Fetch the specific device session
+        // 1. Fetch the specific device session using the Session ID
         const { data: sessionData } = await supabase
             .from('user_sessions')
             .select('id, preferences')
-            .eq('fcm_token', payload.fcmToken)
+            .eq('id', payload.sessionId)
             .single();
             
-        if (!sessionData) throw new Error("Session not found in database.");
+        if (!sessionData) throw new Error("Session row not found in database.");
 
         // 2. Merge and save the new preferences
         const currentPrefs = sessionData.preferences || { push: false, whatsapp: false, sms: false, email: false };
