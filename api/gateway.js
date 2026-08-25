@@ -173,9 +173,14 @@ export default async function handler(req, res) {
 
         result = {
           profile: {
-            id: userData.id, instId: userData.institute_id || '', email: userData.email, name: userData.full_name, role: userData.role, 
+            id: userData.id, 
+            instId: userData.institute_id || '', 
+            email: userData.email, 
+            name: userData.full_name, 
+            role: userData.role, 
             subjects: formattedTeacherSubjects || userData.subjects || userData.operator_profiles?.[0]?.subjects || 'Not Assigned',
-            institute: userData.institutes?.institute_name, code: userData.institutes?.institute_code || userData.institutes?.code || '',
+            institute: userData.institutes?.institute_name, 
+            code: userData.institutes?.institute_code || userData.institutes?.code || '',
             logo: userData.institutes?.logo_url || userData.institutes?.logo || userData.institutes?.institute_logo || '', 
             profilePic: userData.profile_pic_url,
             toggles: { attendance: attEnabled, admission: admEnabled, fee: feeEnabled },
@@ -186,11 +191,11 @@ export default async function handler(req, res) {
                 papersTotal: papersTotal, papersLeft: papersLeft, rcTotal: rcTotal, rcLeft: rcLeft,
                 acTotal: acTotal, acLeft: acLeft, smsTotal: smsTotal, smsRemaining: smsRemaining
             },
-            // 🔥 FIX 1: Explicitly pass the UPI ID down to the dashboard
             upi: userData.operator_profiles?.[0]?.upi_id || userData.operator_profiles?.[0]?.upi || '',
+            readNotifs: userContext.user_metadata?.read_notifs || [],
             
-            // 🔥 FIX 2: Pull the persistent Read Notification Hashes from Supabase Auth
-            readNotifs: userContext.user_metadata?.read_notifs || []
+            // 🔥 THIS IS WHERE THE PREFERENCES LINE GOES:
+            preferences: userContext.user_metadata?.preferences || { push: false, whatsapp: false, sms: false, email: false }
           },
           data: {
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
