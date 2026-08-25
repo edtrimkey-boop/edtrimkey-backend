@@ -185,7 +185,12 @@ export default async function handler(req, res) {
                 plan: mainPlan, startDate: mainStart, renewal: mainRenew, purchaseValue: mainValue,
                 papersTotal: papersTotal, papersLeft: papersLeft, rcTotal: rcTotal, rcLeft: rcLeft,
                 acTotal: acTotal, acLeft: acLeft, smsTotal: smsTotal, smsRemaining: smsRemaining
-            }
+            },
+            // 🔥 FIX 1: Explicitly pass the UPI ID down to the dashboard
+            upi: userData.operator_profiles?.[0]?.upi_id || userData.operator_profiles?.[0]?.upi || '',
+            
+            // 🔥 FIX 2: Pull the persistent Read Notification Hashes from Supabase Auth
+            readNotifs: userContext.user_metadata?.read_notifs || []
           },
           data: {
             papers: safeJobs.filter(j => j.job_type === 'Paper').map(j => ({ 
