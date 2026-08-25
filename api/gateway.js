@@ -703,10 +703,19 @@ export default async function handler(req, res) {
         break;
       }
 
-// Add this inside your backend switch(action) statement:
-case 'updateOperatorUpi':
-    // Example logic to save UPI to database
-    return handleUpdateOperatorUpi(payload.email, payload.upi);
+case "updateOperatorUpi": {
+        // 1. Find the internal user ID using the secure Auth Context
+        const { data: opUser } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+        if (!opUser) throw new Error("Security Error: Operator account not found.");
+
+        // 2. Update the UPI ID directly in the operator_profiles table
+        const { error: upiErr } = await supabase.from('operator_profiles').update({ upi: payload.upi }).eq('user_id', opUser.id);
+        if (upiErr) throw new Error("Database Error: " + upiErr.message);
+
+        // 3. Return success to the frontend
+        result = { success: true, message: "UPI ID saved securely." };
+        break;
+      }
         
       // ==========================================
       // SCALABLE COMMUNICATION ENGINE
