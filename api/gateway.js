@@ -61,7 +61,7 @@ export default async function handler(req, res) {
 
       // 🔥 SAVES THE FCM PUSH TOKEN TO THE ACTIVE DEVICE ROW
       case "registerDeviceToken": {
-        if (payload.sessionId && payload.token) {
+        if (payload.sessionId && payload.fcmToken) {
             await supabase.from('user_sessions')
                 .update({ fcm_token: payload.token })
                 .eq('id', payload.sessionId);
