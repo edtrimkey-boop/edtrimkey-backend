@@ -702,6 +702,11 @@ export default async function handler(req, res) {
         result = { success: true, message: `Status securely changed to ${status}` };
         break;
       }
+
+// Add this inside your backend switch(action) statement:
+case 'updateOperatorUpi':
+    // Example logic to save UPI to database
+    return handleUpdateOperatorUpi(payload.email, payload.upi);
         
       // ==========================================
       // SCALABLE COMMUNICATION ENGINE
@@ -734,7 +739,7 @@ export default async function handler(req, res) {
         result = { success: true, history: historyArr };
         break;
       }
-
+      
       case "addJobTimelineEvent": {
         const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id, institute_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
