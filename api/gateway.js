@@ -59,34 +59,17 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
 
-      case "registerDeviceToken":
-        const { data: dbUser } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
-        
-        if (dbUser) {
-            // Check if this token already exists to prevent duplicate session rows
-            const { data: existingSession } = await supabase
-                .from('user_sessions')
-                .select('id')
-                .eq('fcm_token', payload.token)
-                .single();
-
-            if (!existingSession) {
-                await supabase.from('user_sessions').insert([{
-                    user_id: dbUser.id,
-                    fcm_token: payload.token,
-                    is_active: true,
-                    last_seen: new Date().toISOString()
-                }]);
-            } else {
-                // Optional: Update last_seen if the token already exists
-                await supabase.from('user_sessions')
-                    .update({ last_seen: new Date().toISOString(), is_active: true })
-                    .eq('id', existingSession.id);
-            }
+      // 🔥 SAVES THE FCM PUSH TOKEN TO THE ACTIVE DEVICE ROW
+      case "registerDeviceToken": {
+        if (payload.sessionId && payload.token) {
+            await supabase.from('user_sessions')
+                .update({ fcm_token: payload.token })
+                .eq('id', payload.sessionId);
         }
         result = { success: true };
         break;
-
+      }
+        
       // ==========================================
       // DASHBOARD DATA AGGREGATOR (ULTRA-FAST PARALLEL QUERIES)
       // ==========================================
@@ -257,7 +240,7 @@ export default async function handler(req, res) {
         break;
       }
 
-        // ==========================================
+      // ==========================================
       // DEVICE FINGERPRINTING & SESSION TRACKING
       // ==========================================
       case "syncDeviceSession": {
@@ -268,7 +251,7 @@ export default async function handler(req, res) {
 
         // Try to update the existing device session if we have an ID
         if (currentSessionId) {
-            const { data: existing } = await supabase.from('user_sessions').select('id').eq('id', currentSessionId).single();
+            const { data: existing } = await supabase.from('user_sessions').select('id, preferences').eq('id', currentSessionId).single();
             if (existing) {
                 await supabase.from('user_sessions').update({
                     device_name: payload.deviceName,
@@ -278,12 +261,18 @@ export default async function handler(req, res) {
                     last_seen: new Date().toISOString()
                 }).eq('id', currentSessionId);
                 
-                result = { success: true, sessionId: currentSessionId };
+                // 🔥 Return the saved preferences for this specific device
+                result = { 
+                    success: true, 
+                    sessionId: currentSessionId, 
+                    preferences: existing.preferences || { push: false, whatsapp: false, sms: false, email: false } 
+                };
                 break;
             }
         }
 
-        // If no session ID exists (or the old one was deleted), create a brand new session row
+        // If no session ID exists, create a brand new session row
+        const defaultPrefs = { push: false, whatsapp: false, sms: false, email: false };
         const { data: newSession, error: insertErr } = await supabase.from('user_sessions').insert([{
             user_id: dbUser.id,
             device_name: payload.deviceName,
@@ -291,12 +280,13 @@ export default async function handler(req, res) {
             browser: payload.browser,
             ip_address: payload.ipAddress,
             is_active: true,
-            last_seen: new Date().toISOString()
-        }]).select('id').single();
+            last_seen: new Date().toISOString(),
+            preferences: defaultPrefs
+        }]).select('id, preferences').single();
 
         if (insertErr) throw new Error("Failed to log session: " + insertErr.message);
 
-        result = { success: true, sessionId: newSession.id };
+        result = { success: true, sessionId: newSession.id, preferences: newSession.preferences };
         break;
       }
         
