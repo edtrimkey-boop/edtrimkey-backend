@@ -287,43 +287,57 @@ export default async function handler(req, res) {
       }
 
       // ==========================================
-      // DEVICE FINGERPRINTING & SESSION TRACKING
+      // STRICT DEVICE DEDUPLICATION & TRACKING
       // ==========================================
       case "syncDeviceSession": {
         const { data: dbUser } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
         if (!dbUser) throw new Error("Security Error: User not found.");
 
         let currentSessionId = payload.sessionId;
-        let requiresNewSession = true;
+        if (currentSessionId === "null" || currentSessionId === "undefined") currentSessionId = null;
 
+        let activeSession = null;
+
+        // 1. Try to find the exact session by ID first
         if (currentSessionId) {
             const { data: existing } = await supabase.from('user_sessions')
                 .select('id, user_id, preferences')
                 .eq('id', currentSessionId)
                 .single();
             
-            // 🔥 CRITICAL FIX: Cross-Account Contamination Block
-            // Only reuse the row if it belongs to the CURRENTLY logged-in user
             if (existing && existing.user_id === dbUser.id) {
-                await supabase.from('user_sessions').update({
-                    device_name: payload.deviceName,
-                    device_type: payload.deviceType,
-                    browser: payload.browser,
-                    ip_address: payload.ipAddress,
-                    last_seen: new Date().toISOString()
-                }).eq('id', currentSessionId);
-                
-                result = { 
-                    success: true, 
-                    sessionId: currentSessionId, 
-                    preferences: existing.preferences || { push: false, whatsapp: false, sms: false, email: false } 
-                };
-                requiresNewSession = false;
+                activeSession = existing;
             }
         }
 
-        // If no ID exists, OR if the ID belonged to a previous account, create a brand new row!
-        if (requiresNewSession) {
+        // 2. 🔥 STRICT DEDUPLICATION: Search by Device Footprint
+        // If local storage was wiped, find their existing device row and reuse it!
+        if (!activeSession) {
+            const { data: matchedDevice } = await supabase.from('user_sessions')
+                .select('id, preferences')
+                .eq('user_id', dbUser.id)
+                .eq('device_name', payload.deviceName)
+                .eq('browser', payload.browser)
+                .order('last_seen', { ascending: false })
+                .limit(1)
+                .single();
+                
+            if (matchedDevice) activeSession = matchedDevice;
+        }
+
+        // 3. Update existing OR Create new (as a last resort)
+        if (activeSession) {
+            await supabase.from('user_sessions').update({
+                ip_address: payload.ipAddress,
+                last_seen: new Date().toISOString()
+            }).eq('id', activeSession.id);
+            
+            result = { 
+                success: true, 
+                sessionId: activeSession.id, 
+                preferences: activeSession.preferences || { push: false, whatsapp: false, sms: false, email: false } 
+            };
+        } else {
             const defaultPrefs = { push: false, whatsapp: false, sms: false, email: false };
             const { data: newSession, error: insertErr } = await supabase.from('user_sessions').insert([{
                 user_id: dbUser.id,
