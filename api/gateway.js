@@ -468,6 +468,14 @@ export default async function handler(req, res) {
         }]);
 
         if (notifErr) console.error("Notification DB Error (Paper):", notifErr);
+        // 🔥 TRIGGER PUSH NOTIFICATION FOR AUTOMATIC ASSIGNMENT (PAPERS)
+        if (assignedOperatorId) {
+            await dispatchPushNotification(
+                assignedOperatorId, 
+                "New Paper Assigned", 
+                `Paper Job ${universalJobId} has been assigned to your queue.`
+            );
+        }
         
         result = { success: true, jobId: universalJobId };
         break;
@@ -577,6 +585,14 @@ export default async function handler(req, res) {
         }]);
 
         if (notifErr) console.error("Notification DB Error (Doc):", notifErr);
+        
+        if (assignedOperatorId) {
+            await dispatchPushNotification(
+                assignedOperatorId, 
+                "New Document Assigned", 
+                `Document Job ${docJobId} has been assigned to your queue.`
+            );
+        }
 
         result = { success: true, jobId: docJobId };
         break;
