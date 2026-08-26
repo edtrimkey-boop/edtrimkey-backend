@@ -294,11 +294,17 @@ export default async function handler(req, res) {
         if (!dbUser) throw new Error("Security Error: User not found.");
 
         let currentSessionId = payload.sessionId;
+        let requiresNewSession = true;
 
-        // Try to update the existing device session if we have an ID
         if (currentSessionId) {
-            const { data: existing } = await supabase.from('user_sessions').select('id, preferences').eq('id', currentSessionId).single();
-            if (existing) {
+            const { data: existing } = await supabase.from('user_sessions')
+                .select('id, user_id, preferences')
+                .eq('id', currentSessionId)
+                .single();
+            
+            // 🔥 CRITICAL FIX: Cross-Account Contamination Block
+            // Only reuse the row if it belongs to the CURRENTLY logged-in user
+            if (existing && existing.user_id === dbUser.id) {
                 await supabase.from('user_sessions').update({
                     device_name: payload.deviceName,
                     device_type: payload.deviceType,
@@ -307,32 +313,33 @@ export default async function handler(req, res) {
                     last_seen: new Date().toISOString()
                 }).eq('id', currentSessionId);
                 
-                // 🔥 Return the saved preferences for this specific device
                 result = { 
                     success: true, 
                     sessionId: currentSessionId, 
                     preferences: existing.preferences || { push: false, whatsapp: false, sms: false, email: false } 
                 };
-                break;
+                requiresNewSession = false;
             }
         }
 
-        // If no session ID exists, create a brand new session row
-        const defaultPrefs = { push: false, whatsapp: false, sms: false, email: false };
-        const { data: newSession, error: insertErr } = await supabase.from('user_sessions').insert([{
-            user_id: dbUser.id,
-            device_name: payload.deviceName,
-            device_type: payload.deviceType,
-            browser: payload.browser,
-            ip_address: payload.ipAddress,
-            is_active: true,
-            last_seen: new Date().toISOString(),
-            preferences: defaultPrefs
-        }]).select('id, preferences').single();
+        // If no ID exists, OR if the ID belonged to a previous account, create a brand new row!
+        if (requiresNewSession) {
+            const defaultPrefs = { push: false, whatsapp: false, sms: false, email: false };
+            const { data: newSession, error: insertErr } = await supabase.from('user_sessions').insert([{
+                user_id: dbUser.id,
+                device_name: payload.deviceName,
+                device_type: payload.deviceType,
+                browser: payload.browser,
+                ip_address: payload.ipAddress,
+                is_active: true,
+                last_seen: new Date().toISOString(),
+                preferences: defaultPrefs
+            }]).select('id, preferences').single();
 
-        if (insertErr) throw new Error("Failed to log session: " + insertErr.message);
+            if (insertErr) throw new Error("Failed to log session: " + insertErr.message);
 
-        result = { success: true, sessionId: newSession.id, preferences: newSession.preferences };
+            result = { success: true, sessionId: newSession.id, preferences: newSession.preferences };
+        }
         break;
       }
         
