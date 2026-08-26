@@ -468,13 +468,26 @@ export default async function handler(req, res) {
         }]);
 
         if (notifErr) console.error("Notification DB Error (Paper):", notifErr);
-        // 🔥 TRIGGER PUSH NOTIFICATION FOR AUTOMATIC ASSIGNMENT (PAPERS)
+        // 🔥 EXPLICIT INLINE PUSH (Matches your Broadcast Engine)
         if (assignedOperatorId) {
-            await dispatchPushNotification(
-                assignedOperatorId, 
-                "New Paper Assigned", 
-                `Paper Job ${universalJobId} has been assigned to your queue.`
-            );
+            const { data: opSessions } = await supabase
+                .from('user_sessions')
+                .select('fcm_token, preferences')
+                .eq('user_id', assignedOperatorId)
+                .eq('is_active', true)
+                .not('fcm_token', 'is', null);
+
+            if (opSessions && opSessions.length > 0) {
+                const validTokens = opSessions
+                    .filter(s => s.preferences && s.preferences.push === true)
+                    .map(s => s.fcm_token);
+
+                if (validTokens.length > 0) {
+                    await sendPushNotification(validTokens, "New Paper Job Assigned", `Paper Job ${universalJobId} has been assigned to your queue.`);
+                } else {
+                    console.log("Push bypassed: Operator has push toggled OFF or no valid tokens.");
+                }
+            }
         }
         
         result = { success: true, jobId: universalJobId };
@@ -586,12 +599,24 @@ export default async function handler(req, res) {
 
         if (notifErr) console.error("Notification DB Error (Doc):", notifErr);
         
+        // 🔥 EXPLICIT INLINE PUSH (Matches your Broadcast Engine)
         if (assignedOperatorId) {
-            await dispatchPushNotification(
-                assignedOperatorId, 
-                "New Document Assigned", 
-                `Document Job ${docJobId} has been assigned to your queue.`
-            );
+            const { data: docSessions } = await supabase
+                .from('user_sessions')
+                .select('fcm_token, preferences')
+                .eq('user_id', assignedOperatorId)
+                .eq('is_active', true)
+                .not('fcm_token', 'is', null);
+
+            if (docSessions && docSessions.length > 0) {
+                const docTokens = docSessions
+                    .filter(s => s.preferences && s.preferences.push === true)
+                    .map(s => s.fcm_token);
+
+                if (docTokens.length > 0) {
+                    await sendPushNotification(docTokens, "New Document Assigned", `Document Job ${docJobId} has been assigned to your queue.`);
+                }
+            }
         }
 
         result = { success: true, jobId: docJobId };
