@@ -27,8 +27,41 @@ export default async function handler(req, res) {
        userContext = user;
     }
 
+
+// ==========================================
+    // 🚀 MASTER PUSH DISPATCH ENGINE
+    // ==========================================
+    async function dispatchPushNotification(targetUserId, title, message) {
+        try {
+            // 1. Find all active devices for this user
+            const { data: sessions } = await supabase
+                .from('user_sessions')
+                .select('fcm_token, preferences')
+                .eq('user_id', targetUserId)
+                .eq('is_active', true)
+                .not('fcm_token', 'is', null);
+
+            if (!sessions || sessions.length === 0) return false;
+
+            // 2. Filter: ONLY send to devices where 'push' is toggled ON
+            const validTokens = sessions
+                .filter(s => s.preferences && s.preferences.push === true)
+                .map(s => s.fcm_token);
+
+            if (validTokens.length === 0) return false;
+
+            // 3. Dispatch using your existing firebase.js function
+            await sendPushNotification(validTokens, title, message);
+            return true;
+        } catch (e) {
+            console.error("Push Dispatch Failed:", e.message);
+            return false;
+        }
+    }
+
     // 3. MASTER SWITCHBOARD
     switch (action) {
+    
       
       // ==========================================
       // AUTHENTICATION & SECURITY
@@ -603,14 +636,17 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
 
-      case "assignJobToOperator":
-        const { data: opToAssign } = await supabase.from('users').select('id, device_tokens').eq('full_name', payload.operatorName).single();
+      case "assignJobToOperator": {
+        const { data: opToAssign } = await supabase.from('users').select('id').eq('full_name', payload.operatorName).single();
         if(opToAssign) {
             await supabase.from('jobs_queue').update({ operator_id: opToAssign.id, status: 'Assigned' }).eq('job_code', payload.jobId);
-            if (opToAssign.device_tokens) await sendPushNotification(opToAssign.device_tokens.split(','), "New Job Assigned", `Job ${payload.jobId} assigned to you.`);
+            
+            // 🔥 NEW: USE THE SMART PUSH ENGINE
+            await dispatchPushNotification(opToAssign.id, "New Job Assigned", `Job ${payload.jobId} assigned to you.`);
         }
         result = { success: true, message: `Job officially assigned.` };
         break;
+      }
 
       case "toggleInstituteApp":
         const { data: instData } = await supabase.from('institutes').select('id').eq('code', payload.instCode).single();
@@ -900,14 +936,21 @@ case "updateOperatorUpi": {
                 target_roles: [],
                 target_users: targetUserArr
             }]);
-            
+
+                     
             if (notifErr) console.error("Notification DB Error (Chat):", notifErr);
+        }
+
+
+        // 🔥 NEW: INSTANT PUSH NOTIFICATION FOR CHAT
+            for (let targetId of targetUserArr) {
+                await dispatchPushNotification(targetId, alertTitle, alertMsg);
+            }
         }
 
         result = { success: true, message: "Message sent." };
         break;
-      }
-
+      
       default:
         throw new Error("Invalid API Action requested: " + action);
     }
