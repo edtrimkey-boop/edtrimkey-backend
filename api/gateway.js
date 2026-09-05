@@ -1,7 +1,52 @@
 import { supabase } from '../lib/supabase.js';
+import { createClient } from '@supabase/supabase-js';
 import { uploadToGoogleDrive, getOrCreateFolder } from '../lib/gdrive.js';
 import { sendPushNotification } from '../lib/firebase.js';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 
+// 1. Initialize Admin Client (Bypasses RLS & Email Confirmation)
+const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+// 2. Configure Gmail API OAuth2 Transporter
+const mailTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        type: 'OAuth2',
+        user: 'edtrimkey@gmail.com', 
+        clientId: process.env.GDRIVE_CLIENT_ID,
+        clientSecret: process.env.GDRIVE_CLIENT_SECRET,
+        refreshToken: process.env.GMAIL_REFRESH_TOKEN
+    }
+});
+
+// 3. The Enterprise Welcome Email Dispatcher
+async function dispatchWelcomeMessage(teacherEmail, teacherName, tempPassword, instName) {
+    const mailOptions = {
+        from: `"Ed-Trim Key Systems" <edtrimkey@gmail.com>`,
+        to: teacherEmail,
+        subject: `Welcome to Ed-Trim Key - Your Login Credentials`,
+        html: `
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #26C3EA; margin-bottom: 0;">ED-TRIM KEY</h2>
+            <p style="color: #0F172A; font-size: 15px;">Hello <strong>${teacherName}</strong>,</p>
+            <p style="color: #334155; font-size: 14px;">An administrator at <strong>${instName}</strong> has provisioned your faculty account.</p>
+            
+            <div style="background-color: #f8fafc; border-left: 4px solid #26C3EA; padding: 15px; margin: 25px 0;">
+                <p style="margin: 0 0 5px 0; font-size: 14px;"><strong>Login ID:</strong> ${teacherEmail}</p>
+                <p style="margin: 0; font-size: 14px;"><strong>Password:</strong> <code style="background: #e2e8f0; padding: 2px 6px;">${tempPassword}</code></p>
+            </div>
+            
+            <p style="color: #ef4444; font-size: 13px; font-weight: 600;">⚠️ Security Notice: You will be required to set a private, permanent password immediately upon your first login.</p>
+        </div>
+        `
+    };
+    try {
+        await mailTransporter.sendMail(mailOptions);
+    } catch (error) {
+        console.error("Gmail API Dispatch Error:", error);
+    }
+}
 export default async function handler(req, res) {
   // 1. DYNAMIC CORS (Fast header injection)
   const origin = req.headers.origin || '*';
@@ -674,36 +719,48 @@ export default async function handler(req, res) {
         result = { success: true, message: "Institute, User, and Initial Subscription Registered." };
         break;
 
-      const crypto = require('crypto');
+case "submitTeacherRegistration": {
+        // 1. Generate a secure temporary password
+        const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
 
-async function handleTeacherRegistration(payload) {
-    // 1. Generate a secure, recognizable temporary password
-    const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!"; // e.g., TK-a1b2c3d4!
+        // 2. Create user silently via Supabase Admin API (Bypasses email scanner issues)
+        const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+            email: payload.email,
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: { full_name: payload.name }
+        });
+        if (authErr) throw new Error("Auth Error: " + authErr.message);
 
-    // 2. Create the user silently via Supabase Admin API
-    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-        email: payload.email,
-        password: tempPassword,
-        email_confirm: true // CRITICAL: This bypasses the Supabase email scanner issue entirely
-    });
+        // 3. Insert into public.users with 'Pending' status
+        const { data: newUser, error: userErr } = await supabaseAdmin.from('users').insert([{
+            auth_user_id: authUser.user.id,
+            institute_id: payload.instId, 
+            email: payload.email,
+            full_name: payload.name,
+            phone_number: payload.contactNo || null,
+            role: 'teacher',
+            status: 'Pending', 
+            profile_pic_url: payload.photoUrl || null
+        }]).select('id').single();
+        if (userErr) throw new Error("User DB Error: " + userErr.message);
 
-    if (authErr) throw authErr;
+        // 4. Insert into teacher_profiles
+        const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()) : [];
+        const { error: profileErr } = await supabaseAdmin.from('teacher_profiles').insert([{
+            user_id: newUser.id,
+            assigned_class: payload.classAssigned || null,
+            subject_handles: subjectsArr
+        }]);
+        if (profileErr) throw new Error("Profile DB Error: " + profileErr.message);
 
-    // 3. Insert into your public.users table with a 'Pending' status
-    const { error: dbErr } = await supabaseAdmin.from('users').insert({
-        auth_user_id: authUser.user.id,
-        institute_id: payload.instId,
-        email: payload.email,
-        full_name: payload.name,
-        role: 'teacher',
-        status: 'Pending' // Flags the frontend to lock the screen on first login
-    });
+        // 5. Fire the Gmail API Dispatcher asynchronously
+        const instName = userContext.user_metadata?.institute_name || "your institute";
+        await dispatchWelcomeMessage(payload.email, payload.name, tempPassword, instName);
 
-    // 4. Dispatch the credentials via your preferred API (Resend, Twilio, WhatsApp)
-    await dispatchWelcomeMessage(payload.email, payload.name, tempPassword);
-
-    return { success: true, message: "Teacher provisioned and credentials dispatched." };
-}
+        result = { success: true, message: "Teacher provisioned and credentials dispatched securely." };
+        break;
+      }
 
       case "submitOperatorRegistration":
         const { data: opAuth } = await supabase.auth.admin.createUser({ email: payload.email, password: "TKoperator123", email_confirm: true });
