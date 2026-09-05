@@ -1,0 +1,307 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.institutes (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_code text NOT NULL UNIQUE,
+  institute_name text NOT NULL,
+  admin_email text,
+  plan_type text,
+  status text DEFAULT 'Active'::text,
+  logo_url text,
+  created_at timestamp without time zone DEFAULT now(),
+  papers_total integer DEFAULT 0,
+  papers_left integer DEFAULT 0,
+  rc_total integer DEFAULT 0,
+  rc_left integer DEFAULT 0,
+  ac_total integer DEFAULT 0,
+  ac_left integer DEFAULT 0,
+  sms_total integer DEFAULT 0,
+  sms_remaining integer DEFAULT 0,
+  CONSTRAINT institutes_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.institute_features (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_id uuid,
+  attendance_enabled text DEFAULT 'YES'::text,
+  admission_enabled boolean DEFAULT true,
+  fee_enabled boolean DEFAULT true,
+  CONSTRAINT institute_features_pkey PRIMARY KEY (id),
+  CONSTRAINT institute_features_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.institute_usage (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_id uuid,
+  papers_left integer DEFAULT 0,
+  rc_left integer DEFAULT 0,
+  ac_left integer DEFAULT 0,
+  sms_remaining integer DEFAULT 0,
+  CONSTRAINT institute_usage_pkey PRIMARY KEY (id),
+  CONSTRAINT institute_usage_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  auth_user_id uuid,
+  institute_id uuid,
+  email text NOT NULL UNIQUE,
+  full_name text,
+  phone_number text,
+  role text CHECK (role = ANY (ARRAY['super admin'::text, 'system admin'::text, 'admin'::text, 'teacher'::text, 'operator'::text])),
+  status text DEFAULT 'Active'::text,
+  profile_pic_url text,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT users_pkey PRIMARY KEY (id),
+  CONSTRAINT users_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.operator_profiles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid,
+  work_types ARRAY,
+  rate_per_paper numeric,
+  rate_per_unit numeric,
+  upi_id text,
+  subjects ARRAY,
+  CONSTRAINT operator_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT operator_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.teacher_profiles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid,
+  assigned_class text,
+  subject_handles ARRAY,
+  CONSTRAINT teacher_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT teacher_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.students (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_id uuid,
+  admission_no text NOT NULL,
+  class_name text,
+  roll_no integer,
+  student_name text,
+  father_name text,
+  village text,
+  contact_no text,
+  dob date,
+  status text DEFAULT 'Active'::text,
+  photo_url text,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT students_pkey PRIMARY KEY (id),
+  CONSTRAINT students_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.academic_records (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  student_id uuid,
+  exam_name text,
+  marks_data jsonb,
+  total_obtained integer,
+  percentage numeric,
+  grade text,
+  rank integer,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT academic_records_pkey PRIMARY KEY (id),
+  CONSTRAINT academic_records_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id)
+);
+CREATE TABLE public.attendance_logs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_id uuid,
+  student_id uuid,
+  user_id uuid,
+  date date,
+  status text CHECK (status = ANY (ARRAY['Present'::text, 'Absent'::text, 'Late'::text])),
+  entry_time timestamp without time zone DEFAULT now(),
+  CONSTRAINT attendance_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT attendance_logs_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id),
+  CONSTRAINT attendance_logs_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id),
+  CONSTRAINT attendance_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.job_counters (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_id uuid,
+  last_number integer DEFAULT 0,
+  CONSTRAINT job_counters_pkey PRIMARY KEY (id),
+  CONSTRAINT job_counters_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.jobs_queue (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  job_code text NOT NULL UNIQUE,
+  institute_id uuid,
+  job_type text CHECK (job_type = ANY (ARRAY['Paper'::text, 'Report Card'::text, 'ID Card'::text, 'Certificate'::text, 'Admit Card'::text])),
+  requester_id uuid,
+  operator_id uuid,
+  meta_data jsonb,
+  status text CHECK (status = ANY (ARRAY['In Progress'::text, 'Pending'::text, 'Assigned'::text, 'Formatting'::text, 'Completed'::text, 'Delivered'::text])),
+  raw_file_url text,
+  final_file_url text,
+  deadline timestamp without time zone,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT jobs_queue_pkey PRIMARY KEY (id),
+  CONSTRAINT jobs_queue_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id),
+  CONSTRAINT jobs_queue_requester_id_fkey FOREIGN KEY (requester_id) REFERENCES public.users(id),
+  CONSTRAINT jobs_queue_operator_id_fkey FOREIGN KEY (operator_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.pricing_master (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  service_name text,
+  plan_type text,
+  base_rate numeric,
+  discount_percent numeric,
+  final_rate numeric,
+  unit_measure text,
+  active boolean DEFAULT true,
+  min_quantity integer DEFAULT 1,
+  max_quantity integer DEFAULT 99999,
+  CONSTRAINT pricing_master_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  sender_id uuid,
+  institute_id uuid,
+  title text,
+  message text,
+  type text,
+  status text,
+  reference_id text,
+  created_at timestamp without time zone DEFAULT now(),
+  target_roles ARRAY DEFAULT '{}'::text[],
+  target_users ARRAY DEFAULT '{}'::uuid[],
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_user_id_fkey FOREIGN KEY (sender_id) REFERENCES public.users(id),
+  CONSTRAINT notifications_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.sms_logs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  institute_id uuid,
+  student_id uuid,
+  mobile text,
+  message text,
+  status text,
+  cost numeric,
+  created_at timestamp without time zone DEFAULT now(),
+  CONSTRAINT sms_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT sms_logs_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id),
+  CONSTRAINT sms_logs_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id)
+);
+CREATE TABLE public.user_sessions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid,
+  device_name text,
+  device_type text,
+  browser text,
+  ip_address text,
+  fcm_token text,
+  is_active boolean DEFAULT true,
+  last_seen timestamp without time zone DEFAULT now(),
+  created_at timestamp without time zone DEFAULT now(),
+  preferences jsonb DEFAULT '{"sms": false, "push": false, "email": false, "whatsapp": false}'::jsonb,
+  CONSTRAINT user_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT user_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.subscriptions (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  institute_id uuid,
+  subscription_type character varying NOT NULL,
+  plan_name character varying,
+  billing_cycle character varying,
+  purchase_value numeric DEFAULT 0,
+  discount numeric DEFAULT 0,
+  tax_amount numeric DEFAULT 0,
+  total_amount numeric DEFAULT 0,
+  start_date date,
+  renewal_date date,
+  expiry_date date,
+  status character varying DEFAULT 'Pending'::character varying,
+  payment_status character varying DEFAULT 'Pending'::character varying,
+  payment_method character varying,
+  transaction_reference character varying,
+  invoice_id character varying,
+  auto_renew boolean DEFAULT false,
+  notes text,
+  created_by uuid,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT subscriptions_pkey PRIMARY KEY (id),
+  CONSTRAINT subscriptions_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id)
+);
+CREATE TABLE public.subscription_features (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  subscription_id uuid,
+  feature_key character varying NOT NULL,
+  enabled boolean DEFAULT true,
+  total_limit integer DEFAULT 0,
+  used integer DEFAULT 0,
+  remaining integer DEFAULT 0,
+  reset_cycle character varying,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT subscription_features_pkey PRIMARY KEY (id),
+  CONSTRAINT subscription_features_subscription_id_fkey FOREIGN KEY (subscription_id) REFERENCES public.subscriptions(id)
+);
+CREATE TABLE public.job_communications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  job_code text NOT NULL,
+  actor_name text NOT NULL,
+  actor_role text NOT NULL,
+  message_type text DEFAULT 'note'::text,
+  message text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT job_communications_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.billing_ledger (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  ledger_ref text NOT NULL UNIQUE,
+  payment_ref text UNIQUE,
+  institute_id uuid,
+  user_id uuid,
+  service_type text NOT NULL,
+  transaction_type text NOT NULL,
+  direction USER-DEFINED NOT NULL,
+  amount numeric NOT NULL CHECK (amount >= 0::numeric),
+  currency character NOT NULL DEFAULT 'INR'::bpchar,
+  status USER-DEFINED NOT NULL DEFAULT 'POSTED'::billing_status,
+  payment_method USER-DEFINED,
+  payment_gateway text,
+  gateway_order_id text,
+  gateway_payment_id text,
+  reference_type text,
+  reference_id text,
+  description text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT billing_ledger_pkey PRIMARY KEY (id),
+  CONSTRAINT billing_ledger_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id),
+  CONSTRAINT billing_ledger_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id),
+  CONSTRAINT billing_ledger_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id)
+);
+CREATE TABLE public.institute_billing (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  billing_ref text NOT NULL UNIQUE,
+  institute_id uuid NOT NULL,
+  student_id uuid,
+  admission_id uuid,
+  academic_session text,
+  fee_type text NOT NULL,
+  transaction_type text NOT NULL CHECK (transaction_type = ANY (ARRAY['FEE_CHARGE'::text, 'FEE_PAYMENT'::text, 'DISCOUNT'::text, 'SCHOLARSHIP'::text, 'REFUND'::text, 'REVERSAL'::text, 'ADJUSTMENT'::text, 'OTHER'::text])),
+  direction text NOT NULL CHECK (direction = ANY (ARRAY['CREDIT'::text, 'DEBIT'::text])),
+  amount numeric NOT NULL CHECK (amount >= 0::numeric),
+  currency character NOT NULL DEFAULT 'INR'::bpchar,
+  status text NOT NULL DEFAULT 'POSTED'::text CHECK (status = ANY (ARRAY['PENDING'::text, 'POSTED'::text, 'FAILED'::text, 'CANCELLED'::text, 'REVERSED'::text])),
+  payment_method text,
+  payment_gateway text,
+  gateway_order_id text,
+  gateway_payment_id text,
+  reference_type text,
+  reference_id text,
+  receipt_number text,
+  transaction_date timestamp with time zone NOT NULL DEFAULT now(),
+  description text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  recorded_by uuid,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT institute_billing_pkey PRIMARY KEY (id),
+  CONSTRAINT institute_billing_institute_id_fkey FOREIGN KEY (institute_id) REFERENCES public.institutes(id),
+  CONSTRAINT institute_billing_student_id_fkey FOREIGN KEY (student_id) REFERENCES public.students(id),
+  CONSTRAINT institute_billing_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES public.users(id)
+);
