@@ -1090,10 +1090,10 @@ case "updateOperatorUpi": {
             for (let targetId of targetUserArr) {
                 await dispatchPushNotification(targetId, alertTitle, alertMsg);
             }
+        }
 
         result = { success: true, message: "Message sent." };
         break;
-      } // Correctly closes case "addJobTimelineEvent": {
       
       default:
         throw new Error("Invalid API Action requested: " + action);
