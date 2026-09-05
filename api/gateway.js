@@ -674,11 +674,36 @@ export default async function handler(req, res) {
         result = { success: true, message: "Institute, User, and Initial Subscription Registered." };
         break;
 
-      case "submitTeacherRegistration":
-        const { data: tchrAuth } = await supabase.auth.admin.createUser({ email: payload.email, password: "TKtchr123", email_confirm: true });
-        await supabase.from('users').insert([{ auth_user_id: tchrAuth.user.id, email: payload.email, full_name: payload.name, role: 'teacher', institute_code: payload.instCode, status: 'Active', profile_pic_url: payload.photoUrl }]);
-        result = { success: true };
-        break;
+      const crypto = require('crypto');
+
+async function handleTeacherRegistration(payload) {
+    // 1. Generate a secure, recognizable temporary password
+    const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!"; // e.g., TK-a1b2c3d4!
+
+    // 2. Create the user silently via Supabase Admin API
+    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+        email: payload.email,
+        password: tempPassword,
+        email_confirm: true // CRITICAL: This bypasses the Supabase email scanner issue entirely
+    });
+
+    if (authErr) throw authErr;
+
+    // 3. Insert into your public.users table with a 'Pending' status
+    const { error: dbErr } = await supabaseAdmin.from('users').insert({
+        auth_user_id: authUser.user.id,
+        institute_id: payload.instId,
+        email: payload.email,
+        full_name: payload.name,
+        role: 'teacher',
+        status: 'Pending' // Flags the frontend to lock the screen on first login
+    });
+
+    // 4. Dispatch the credentials via your preferred API (Resend, Twilio, WhatsApp)
+    await dispatchWelcomeMessage(payload.email, payload.name, tempPassword);
+
+    return { success: true, message: "Teacher provisioned and credentials dispatched." };
+}
 
       case "submitOperatorRegistration":
         const { data: opAuth } = await supabase.auth.admin.createUser({ email: payload.email, password: "TKoperator123", email_confirm: true });
