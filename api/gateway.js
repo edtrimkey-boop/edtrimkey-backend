@@ -728,35 +728,45 @@ export default async function handler(req, res) {
       case "submitInstituteRegistration": {
         const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
         
-        const { data: newInst } = await supabaseAdmin.from('institutes').insert([{
+        // 1. Create Institute (WITH ERROR CATCHING)
+        const { data: newInst, error: instErr } = await supabaseAdmin.from('institutes').insert([{
             code: payload.instCode, institute_name: payload.instName, is_active: true, logo_url: payload.logoUrl
         }]).select().single();
+        if (instErr || !newInst) throw new Error("Institute DB Error: " + (instErr?.message || "Failed to create institute. Check if the Institute Code is already in use."));
 
-        const { data: instAuth, error: authErr } = await supabaseAdmin.auth.admin.createUser({ 
+        // 2. Create Auth User (WITH SAFE DESTRUCTURING)
+        const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({ 
             email: payload.adminEmail, password: tempPassword, email_confirm: true 
         });
         if (authErr) throw new Error("Auth Error: " + authErr.message);
+        if (!authData || !authData.user) throw new Error("Auth Error: Failed to generate user account.");
 
-        await supabaseAdmin.from('users').insert([{
-            auth_user_id: instAuth.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
+        // 3. Insert Admin User Profile
+        const { error: userErr } = await supabaseAdmin.from('users').insert([{
+            auth_user_id: authData.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
             role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, 
             status: 'Pending'
         }]);
+        if (userErr) throw new Error("User DB Error: " + userErr.message);
 
-        const { data: initialSub } = await supabaseAdmin.from('subscriptions').insert([{
+        // 4. Create Subscription (WITH ERROR CATCHING)
+        const { data: initialSub, error: subErr } = await supabaseAdmin.from('subscriptions').insert([{
             institute_id: newInst.id, subscription_type: "Complete ERP", plan_name: payload.planType,
             billing_cycle: "Yearly", status: "Active", payment_status: "Trial", start_date: new Date().toISOString(), purchase_value: 0
         }]).select().single();
+        if (subErr || !initialSub) throw new Error("Subscription Error: " + (subErr?.message || "Failed to generate subscription."));
 
-        await supabaseAdmin.from('subscription_features').insert([
+        // 5. Apply Subscription Features
+        const { error: featErr } = await supabaseAdmin.from('subscription_features').insert([
             { subscription_id: initialSub.id, feature_key: 'paper_formatter', enabled: true, total_limit: payload.papersTotal, remaining: payload.papersTotal },
             { subscription_id: initialSub.id, feature_key: 'sms', enabled: true, total_limit: payload.smsTotal, remaining: payload.smsTotal },
             { subscription_id: initialSub.id, feature_key: 'attendance', enabled: payload.attendanceToggle === "YES" },
             { subscription_id: initialSub.id, feature_key: 'admission', enabled: payload.admissionToggle === "YES" },
             { subscription_id: initialSub.id, feature_key: 'fee_collection', enabled: payload.feeToggle === "YES" }
         ]);
+        if (featErr) throw new Error("Features DB Error: " + featErr.message);
 
-        // PASSING ALL 6 ARGUMENTS PERFECTLY
+        // 6. Dispatch Email
         await dispatchWelcomeMessage(payload.adminEmail, payload.clientName, tempPassword, payload.instName, 'Institute Admin', payload.logoUrl);
 
         result = { success: true, message: "Institute Registered. Credentials Dispatched." };
