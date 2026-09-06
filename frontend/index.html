@@ -5591,6 +5591,7 @@ async function handleTeacherRegSubmit(e) {
   if (syncElem) syncElem.innerText = "SAVING TO DATABASE...";
   else showLoader('SAVING TO DATABASE...');
   var payload = {
+    instId: globalUser.instId || globalUser.institute_id || '', // ADD THIS LINE
     email: document.getElementById('trRegEmail').value,
     name: document.getElementById('trRegName').value,
     contactNo: document.getElementById('trRegPhone').value,
