@@ -724,23 +724,30 @@ export default async function handler(req, res) {
       // ==========================================
       // REGISTRATIONS & MANAGEMENT
       // ==========================================
-      case "submitInstituteRegistration":
-        const { data: newInst } = await supabase.from('institutes').insert([{
-            code: payload.instCode, institute_name: payload.instName, is_active: true
+      case "submitInstituteRegistration": {
+        const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
+        
+        const { data: newInst } = await supabaseAdmin.from('institutes').insert([{
+            code: payload.instCode, institute_name: payload.instName, is_active: true, logo_url: payload.logoUrl
         }]).select().single();
 
-        const { data: instAuth } = await supabase.auth.admin.createUser({ email: payload.adminEmail, password: "TKadmin123", email_confirm: true });
-        await supabase.from('users').insert([{
+        const { data: instAuth, error: authErr } = await supabaseAdmin.auth.admin.createUser({ 
+            email: payload.adminEmail, password: tempPassword, email_confirm: true 
+        });
+        if (authErr) throw new Error("Auth Error: " + authErr.message);
+
+        await supabaseAdmin.from('users').insert([{
             auth_user_id: instAuth.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
-            role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, status: 'Active'
+            role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, 
+            status: 'Pending' // Requires password change on first login
         }]);
 
-        const { data: initialSub } = await supabase.from('subscriptions').insert([{
+        const { data: initialSub } = await supabaseAdmin.from('subscriptions').insert([{
             institute_id: newInst.id, subscription_type: "Complete ERP", plan_name: payload.planType,
             billing_cycle: "Yearly", status: "Active", payment_status: "Trial", start_date: new Date().toISOString(), purchase_value: 0
         }]).select().single();
 
-        await supabase.from('subscription_features').insert([
+        await supabaseAdmin.from('subscription_features').insert([
             { subscription_id: initialSub.id, feature_key: 'paper_formatter', enabled: true, total_limit: payload.papersTotal, remaining: payload.papersTotal },
             { subscription_id: initialSub.id, feature_key: 'sms', enabled: true, total_limit: payload.smsTotal, remaining: payload.smsTotal },
             { subscription_id: initialSub.id, feature_key: 'attendance', enabled: payload.attendanceToggle === "YES" },
@@ -748,57 +755,59 @@ export default async function handler(req, res) {
             { subscription_id: initialSub.id, feature_key: 'fee_collection', enabled: payload.feeToggle === "YES" }
         ]);
 
-        result = { success: true, message: "Institute, User, and Initial Subscription Registered." };
+        await dispatchWelcomeMessage(payload.adminEmail, payload.clientName, tempPassword, payload.instName, 'Institute Admin', payload.logoUrl);
+
+        result = { success: true, message: "Institute Registered. Credentials Dispatched." };
         break;
-        
-        case "submitTeacherRegistration": {
-        // 1. Generate a secure temporary password
+      }
+
+      case "submitTeacherRegistration": {
         const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
 
-        // 2. Create user silently via Supabase Admin API
         const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-            email: email, // FIXED: Removed "payload."
-            password: tempPassword,
-            email_confirm: true,
-            user_metadata: { full_name: payload.name }
+            email: email, password: tempPassword, email_confirm: true, user_metadata: { full_name: payload.name }
         });
         if (authErr) throw new Error("Auth Error: " + authErr.message);
 
-        // 3. Insert into public.users with 'Pending' status
         const { data: newUser, error: userErr } = await supabaseAdmin.from('users').insert([{
-            auth_user_id: authUser.user.id,
-            institute_id: payload.instId, 
-            email: email, // FIXED: Removed "payload."
-            full_name: payload.name,
-            phone_number: payload.contactNo || null,
-            role: 'teacher',
-            status: 'Pending', 
-            profile_pic_url: payload.photoUrl || null
+            auth_user_id: authUser.user.id, institute_id: payload.instId, email: email,
+            full_name: payload.name, phone_number: payload.contactNo || null, role: 'teacher',
+            status: 'Pending', profile_pic_url: payload.photoUrl || null
         }]).select('id').single();
         if (userErr) throw new Error("User DB Error: " + userErr.message);
 
-        // 4. Insert into teacher_profiles
         const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()) : [];
-        const { error: profileErr } = await supabaseAdmin.from('teacher_profiles').insert([{
-            user_id: newUser.id,
-            assigned_class: payload.classAssigned || null,
-            subject_handles: subjectsArr
+        await supabaseAdmin.from('teacher_profiles').insert([{
+            user_id: newUser.id, assigned_class: payload.classAssigned || null, subject_handles: subjectsArr
         }]);
-        if (profileErr) throw new Error("Profile DB Error: " + profileErr.message);
 
-        // 5. Fire the Gmail API Dispatcher asynchronously
-        const instName = userContext.user_metadata?.institute_name || "your institute";
-        await dispatchWelcomeMessage(email, payload.name, tempPassword, instName); // FIXED: Removed "payload."
+        const instName = userContext.user_metadata?.institute_name || payload.instName || "your institute";
+        await dispatchWelcomeMessage(email, payload.name, tempPassword, instName, 'Teacher', null);
 
         result = { success: true, message: "Teacher provisioned and credentials dispatched securely." };
         break;
       }
 
       case "submitOperatorRegistration": {
-        // FIXED: Removed "payload." from email
-        const { data: opAuth } = await supabase.auth.admin.createUser({ email: email, password: "TKoperator123", email_confirm: true });
-        const { data: newOp } = await supabase.from('users').insert([{ auth_user_id: opAuth.user.id, email: email, full_name: payload.name, role: 'operator', status: 'Active', profile_pic_url: payload.photoUrl }]).select().single();
-        await supabase.from('operator_profiles').insert([{ user_id: newOp.id, subjects: payload.subjects, work_type: payload.workType, rate_paper: payload.ratePaper, rate_unit: payload.rateUnit, upi_id: payload.upi }]);
+        const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
+        
+        const { data: opAuth, error: authErr } = await supabaseAdmin.auth.admin.createUser({ 
+            email: email, password: tempPassword, email_confirm: true 
+        });
+        if (authErr) throw new Error("Auth Error: " + authErr.message);
+        
+        const { data: newOp } = await supabaseAdmin.from('users').insert([{ 
+            auth_user_id: opAuth.user.id, email: email, full_name: payload.name, 
+            role: 'operator', status: 'Pending', profile_pic_url: payload.photoUrl 
+        }]).select().single();
+        
+        await supabaseAdmin.from('operator_profiles').insert([{ 
+            user_id: newOp.id, subjects: payload.subjects, work_type: payload.workType, 
+            rate_paper: payload.ratePaper, rate_unit: payload.rateUnit, upi_id: payload.upi 
+        }]);
+        
+        await dispatchWelcomeMessage(email, payload.name, tempPassword, 'Ed-Trim Key Network', 'System Operator', null);
+        
         result = { success: true };
         break;
       }
