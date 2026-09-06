@@ -8,15 +8,12 @@ import nodemailer from 'nodemailer';
 // 1. Initialize Admin Client (Bypasses RLS & Email Confirmation)
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-// 2. Configure Gmail API OAuth2 Transporter
+// 2. Configure Gmail SMTP Transporter (Bulletproof App Password Method)
 const mailTransporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        type: 'OAuth2',
         user: 'edtrimkey@gmail.com', 
-        clientId: process.env.GDRIVE_CLIENT_ID,
-        clientSecret: process.env.GDRIVE_CLIENT_SECRET,
-        refreshToken: process.env.GDRIVE_REFRESH_TOKEN
+        pass: process.env.GMAIL_APP_PASSWORD
     }
 });
 
