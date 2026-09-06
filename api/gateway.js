@@ -1087,6 +1087,7 @@ case "updateOperatorUpi": {
 
 
         // 🔥 NEW: INSTANT PUSH NOTIFICATION FOR CHAT
+        if (targetUserArr.length > 0) {
             for (let targetId of targetUserArr) {
                 await dispatchPushNotification(targetId, alertTitle, alertMsg);
             }
@@ -1094,6 +1095,7 @@ case "updateOperatorUpi": {
 
         result = { success: true, message: "Message sent." };
         break;
+      }
       
       default:
         throw new Error("Invalid API Action requested: " + action);
