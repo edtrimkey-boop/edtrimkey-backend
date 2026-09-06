@@ -728,9 +728,12 @@ export default async function handler(req, res) {
       case "submitInstituteRegistration": {
         const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
         
-        // 1. Create Institute (WITH ERROR CATCHING)
+        // 1. Create Institute (FIXED COLUMN NAME)
         const { data: newInst, error: instErr } = await supabaseAdmin.from('institutes').insert([{
-            code: payload.instCode, institute_name: payload.instName, is_active: true, logo_url: payload.logoUrl
+            institute_code: payload.instCode, // Changed from 'code'
+            institute_name: payload.instName, 
+            is_active: true, 
+            logo_url: payload.logoUrl
         }]).select().single();
         if (instErr || !newInst) throw new Error("Institute DB Error: " + (instErr?.message || "Failed to create institute. Check if the Institute Code is already in use."));
 
