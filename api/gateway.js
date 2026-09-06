@@ -729,14 +729,14 @@ export default async function handler(req, res) {
 
         result = { success: true, message: "Institute, User, and Initial Subscription Registered." };
         break;
-
-case "submitTeacherRegistration": {
+        
+        case "submitTeacherRegistration": {
         // 1. Generate a secure temporary password
         const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
 
-        // 2. Create user silently via Supabase Admin API (Bypasses email scanner issues)
+        // 2. Create user silently via Supabase Admin API
         const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-            email: payload.email,
+            email: email, // FIXED: Removed "payload."
             password: tempPassword,
             email_confirm: true,
             user_metadata: { full_name: payload.name }
@@ -747,7 +747,7 @@ case "submitTeacherRegistration": {
         const { data: newUser, error: userErr } = await supabaseAdmin.from('users').insert([{
             auth_user_id: authUser.user.id,
             institute_id: payload.instId, 
-            email: payload.email,
+            email: email, // FIXED: Removed "payload."
             full_name: payload.name,
             phone_number: payload.contactNo || null,
             role: 'teacher',
@@ -767,18 +767,20 @@ case "submitTeacherRegistration": {
 
         // 5. Fire the Gmail API Dispatcher asynchronously
         const instName = userContext.user_metadata?.institute_name || "your institute";
-        await dispatchWelcomeMessage(payload.email, payload.name, tempPassword, instName);
+        await dispatchWelcomeMessage(email, payload.name, tempPassword, instName); // FIXED: Removed "payload."
 
         result = { success: true, message: "Teacher provisioned and credentials dispatched securely." };
         break;
       }
 
-      case "submitOperatorRegistration":
-        const { data: opAuth } = await supabase.auth.admin.createUser({ email: payload.email, password: "TKoperator123", email_confirm: true });
-        const { data: newOp } = await supabase.from('users').insert([{ auth_user_id: opAuth.user.id, email: payload.email, full_name: payload.name, role: 'operator', status: 'Active', profile_pic_url: payload.photoUrl }]).select().single();
+      case "submitOperatorRegistration": {
+        // FIXED: Removed "payload." from email
+        const { data: opAuth } = await supabase.auth.admin.createUser({ email: email, password: "TKoperator123", email_confirm: true });
+        const { data: newOp } = await supabase.from('users').insert([{ auth_user_id: opAuth.user.id, email: email, full_name: payload.name, role: 'operator', status: 'Active', profile_pic_url: payload.photoUrl }]).select().single();
         await supabase.from('operator_profiles').insert([{ user_id: newOp.id, subjects: payload.subjects, work_type: payload.workType, rate_paper: payload.ratePaper, rate_unit: payload.rateUnit, upi_id: payload.upi }]);
         result = { success: true };
         break;
+      }
 
       case "updateOperatorDetails":
         const { data: opUser } = await supabase.from('users').select('id').eq('full_name', payload.originalName).single();
