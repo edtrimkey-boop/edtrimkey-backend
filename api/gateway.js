@@ -113,15 +113,24 @@ export default async function handler(req, res) {
       // ==========================================
       // AUTHENTICATION & SECURITY
       // ==========================================
-      case "login":
+      case "login": {
         const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
         if (authErr) throw authErr;
         
         const { data: profile } = await supabase.from('users').select('*').eq('auth_user_id', authData.user.id).single();
-        if (!profile || profile.status !== 'Active') throw new Error("Account is disabled or pending.");
+        if (!profile || (profile.status !== 'Active' && profile.status !== 'Pending')) {
+          throw new Error("Account is disabled or inaccessible.");
+        }
 
-        result = { success: true, email: profile.email, token: authData.session.access_token, role: profile.role };
+        result = { 
+          success: true, 
+          email: profile.email, 
+          token: authData.session.access_token, 
+          role: profile.role,
+          status: profile.status // Returns status so frontend knows to force password change
+        };
         break;
+      }
 
       case "changeUserPassword":
         const { error: pwErr } = await supabase.auth.admin.updateUserById(userContext.id, { password: payload.newPw });
