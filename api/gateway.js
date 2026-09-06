@@ -16,7 +16,7 @@ const mailTransporter = nodemailer.createTransport({
         user: 'edtrimkey@gmail.com', 
         clientId: process.env.GDRIVE_CLIENT_ID,
         clientSecret: process.env.GDRIVE_CLIENT_SECRET,
-        refreshToken: process.env.GMAIL_REFRESH_TOKEN
+        refreshToken: process.env.GDRIVE_REFRESH_TOKEN
     }
 });
 

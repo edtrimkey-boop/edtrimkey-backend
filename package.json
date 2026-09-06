@@ -5,10 +5,10 @@
   "scripts": {
     "start": "node api/gateway.js"
   },
- "dependencies": {
+  "dependencies": {
     "@supabase/supabase-js": "^2.39.3",
-    "cors": "^2.8.5",
     "firebase-admin": "^12.0.0",
     "googleapis": "^133.0.0",
     "nodemailer": "^6.9.14"
   }
+}
