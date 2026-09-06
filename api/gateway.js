@@ -17,24 +17,47 @@ const mailTransporter = nodemailer.createTransport({
     }
 });
 
-// 3. The Enterprise Welcome Email Dispatcher
-async function dispatchWelcomeMessage(teacherEmail, teacherName, tempPassword, instName) {
+// 3. The Enterprise Welcome Email Dispatcher (Premium UI)
+async function dispatchWelcomeMessage(userEmail, userName, tempPassword, instName, role, instLogo) {
+    const defaultLogo = "https://wjvoetdkkggyhtcoqqcj.supabase.co/storage/v1/object/public/Ed%20Trim%20Key/Ed-Trim%20Kry%20Logo.png";
+    const finalLogo = instLogo || defaultLogo;
+    const dashboardUrl = "https://edtrimkey-app.vercel.app";
+    
     const mailOptions = {
         from: `"Ed-Trim Key Systems" <edtrimkey@gmail.com>`,
-        to: teacherEmail,
-        subject: `Welcome to Ed-Trim Key - Your Login Credentials`,
+        to: userEmail,
+        subject: `Your ${role} Access - Welcome to ${instName}`,
         html: `
-        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
-            <h2 style="color: #26C3EA; margin-bottom: 0;">ED-TRIM KEY</h2>
-            <p style="color: #0F172A; font-size: 15px;">Hello <strong>${teacherName}</strong>,</p>
-            <p style="color: #334155; font-size: 14px;">An administrator at <strong>${instName}</strong> has provisioned your faculty account.</p>
-            
-            <div style="background-color: #f8fafc; border-left: 4px solid #26C3EA; padding: 15px; margin: 25px 0;">
-                <p style="margin: 0 0 5px 0; font-size: 14px;"><strong>Login ID:</strong> ${teacherEmail}</p>
-                <p style="margin: 0; font-size: 14px;"><strong>Password:</strong> <code style="background: #e2e8f0; padding: 2px 6px;">${tempPassword}</code></p>
+        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0B111E; padding: 40px 20px; color: #F1F5F9;">
+            <div style="max-width: 500px; margin: 0 auto; background: #141E30; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.5);">
+                
+                <div style="text-align: center; padding: 30px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); background: linear-gradient(145deg, #1D2C46, #141E30);">
+                    <img src="${finalLogo}" alt="Logo" style="width: 60px; height: 60px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 0 15px rgba(38, 195, 234, 0.3); background: white; padding: 2px; object-fit: contain;">
+                    <h2 style="color: #26C3EA; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">${instName}</h2>
+                    <p style="color: #94A3B8; font-size: 11px; margin-top: 5px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px;">Secure Account Provisioned</p>
+                </div>
+                
+                <div style="padding: 30px;">
+                    <p style="color: #F1F5F9; font-size: 15px; margin-bottom: 20px; font-weight: 600;">Hello ${userName},</p>
+                    <p style="color: #94A3B8; font-size: 13px; line-height: 1.6;">You have been officially invited to join the system as a <strong>${role}</strong>. Below are your secure login credentials to access the command center.</p>
+                    
+                    <div style="background: rgba(38, 195, 234, 0.05); border-left: 4px solid #26C3EA; border-radius: 4px; padding: 15px; margin: 25px 0;">
+                        <p style="margin: 0 0 8px 0; font-size: 12px; color: #94A3B8; font-weight: 700;">USER ID:</p>
+                        <p style="margin: 0 0 15px 0; font-size: 14px; color: #F1F5F9; font-weight: 600;">${userEmail}</p>
+                        
+                        <p style="margin: 0 0 8px 0; font-size: 12px; color: #94A3B8; font-weight: 700;">TEMPORARY PASSWORD:</p>
+                        <p style="margin: 0; font-size: 14px;"><span style="background: rgba(0,0,0,0.4); color: #26C3EA; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 16px; font-weight: 900; letter-spacing: 1px; border: 1px solid rgba(38, 195, 234, 0.2);">${tempPassword}</span></p>
+                    </div>
+                    
+                    <div style="text-align: center; margin-top: 30px;">
+                        <a href="${dashboardUrl}" style="background: linear-gradient(135deg, #26C3EA, #1A9CBF); color: #000; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 800; font-size: 13px; display: inline-block; box-shadow: 0 4px 15px rgba(38, 195, 234, 0.3);">Access Dashboard</a>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(239, 68, 68, 0.05); padding: 20px; text-align: center; border-top: 1px solid rgba(255, 255, 255, 0.05);">
+                    <p style="color: #EF4444; font-size: 12px; margin: 0; font-weight: 700;">⚠️ Security Notice: You will be required to set a private, permanent password immediately upon your first login.</p>
+                </div>
             </div>
-            
-            <p style="color: #ef4444; font-size: 13px; font-weight: 600;">⚠️ Security Notice: You will be required to set a private, permanent password immediately upon your first login.</p>
         </div>
         `
     };
@@ -115,33 +138,20 @@ export default async function handler(req, res) {
         if (authErr) throw authErr;
         
         const { data: profile } = await supabase.from('users').select('*').eq('auth_user_id', authData.user.id).single();
-        if (!profile || (profile.status !== 'Active' && profile.status !== 'Pending')) {
-          throw new Error("Account is disabled or inaccessible.");
-        }
+        // Allow BOTH Active and Pending users to log in
+        if (!profile || (profile.status !== 'Active' && profile.status !== 'Pending')) throw new Error("Account is disabled.");
 
-        result = { 
-          success: true, 
-          email: profile.email, 
-          token: authData.session.access_token, 
-          role: profile.role,
-          status: profile.status // Returns status so frontend knows to force password change
-        };
+        result = { success: true, email: profile.email, token: authData.session.access_token, role: profile.role };
         break;
       }
 
       case "changeUserPassword": {
-        // 1. Update the password in Supabase Auth
         const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userContext.id, { password: payload.newPw });
         if (pwErr) throw pwErr;
-
-        // 2. If this was their first login, upgrade their profile to Active
+        
+        // If this was their first login, upgrade their profile to Active
         if (payload.currentStatus === 'Pending') {
-            const { error: statusErr } = await supabaseAdmin
-                .from('users')
-                .update({ status: 'Active' })
-                .eq('auth_user_id', userContext.id);
-                
-            if (statusErr) throw new Error("Password changed, but failed to activate account.");
+            await supabaseAdmin.from('users').update({ status: 'Active' }).eq('auth_user_id', userContext.id);
         }
 
         result = { success: true, message: "Password updated successfully!" };
@@ -266,10 +276,11 @@ export default async function handler(req, res) {
         if (admEnabled === "YES") generatedApps.push({ name: "Admission System", url: "https://script.google.com/macros/s/AKfycbyhSh64AGV-oFrGZL25mWKOhjO1vn7ID_FZ0kcwokk3FuAzwQnygeHKVnwGlRi4DuZRhQ/exec", targetRole: "all" });
         if (feeEnabled === "YES") generatedApps.push({ name: "Fee Collection", url: "https://script.google.com/macros/s/AKfycbxWrJ75j__w2-hjxvoQGHvM5ztFMzod6RUxAputcyZGlESuhaPWZAJbk-gQnXhCZNSL/exec", targetRole: "admin" });
 
-        result = {
+       result = {
           profile: {
             id: userData.id, 
-            instId: userData.institute_id || '', 
+            status: userData.status, // <--- CRITICAL FIX: Sends 'Pending' to the frontend to trigger the popup
+            instId: userData.institute_id || '',
             email: userData.email, 
             name: userData.full_name, 
             role: userData.role, 
