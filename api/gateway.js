@@ -67,6 +67,7 @@ async function dispatchWelcomeMessage(userEmail, userName, tempPassword, instNam
         console.error("Gmail API Dispatch Error:", error);
     }
 }
+
 export default async function handler(req, res) {
   // 1. Inject CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -739,7 +740,7 @@ export default async function handler(req, res) {
         await supabaseAdmin.from('users').insert([{
             auth_user_id: instAuth.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
             role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, 
-            status: 'Pending' // Requires password change on first login
+            status: 'Pending'
         }]);
 
         const { data: initialSub } = await supabaseAdmin.from('subscriptions').insert([{
@@ -755,6 +756,7 @@ export default async function handler(req, res) {
             { subscription_id: initialSub.id, feature_key: 'fee_collection', enabled: payload.feeToggle === "YES" }
         ]);
 
+        // PASSING ALL 6 ARGUMENTS PERFECTLY
         await dispatchWelcomeMessage(payload.adminEmail, payload.clientName, tempPassword, payload.instName, 'Institute Admin', payload.logoUrl);
 
         result = { success: true, message: "Institute Registered. Credentials Dispatched." };
@@ -782,6 +784,8 @@ export default async function handler(req, res) {
         }]);
 
         const instName = userContext.user_metadata?.institute_name || payload.instName || "your institute";
+        
+        // PASSING ALL 6 ARGUMENTS PERFECTLY
         await dispatchWelcomeMessage(email, payload.name, tempPassword, instName, 'Teacher', null);
 
         result = { success: true, message: "Teacher provisioned and credentials dispatched securely." };
@@ -806,6 +810,7 @@ export default async function handler(req, res) {
             rate_paper: payload.ratePaper, rate_unit: payload.rateUnit, upi_id: payload.upi 
         }]);
         
+        // PASSING ALL 6 ARGUMENTS PERFECTLY
         await dispatchWelcomeMessage(email, payload.name, tempPassword, 'Ed-Trim Key Network', 'System Operator', null);
         
         result = { success: true };
