@@ -129,11 +129,24 @@ export default async function handler(req, res) {
         break;
       }
 
-      case "changeUserPassword":
-        const { error: pwErr } = await supabase.auth.admin.updateUserById(userContext.id, { password: payload.newPw });
+      case "changeUserPassword": {
+        // 1. Update the password in Supabase Auth
+        const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userContext.id, { password: payload.newPw });
         if (pwErr) throw pwErr;
+
+        // 2. If this was their first login, upgrade their profile to Active
+        if (payload.currentStatus === 'Pending') {
+            const { error: statusErr } = await supabaseAdmin
+                .from('users')
+                .update({ status: 'Active' })
+                .eq('auth_user_id', userContext.id);
+                
+            if (statusErr) throw new Error("Password changed, but failed to activate account.");
+        }
+
         result = { success: true, message: "Password updated successfully!" };
         break;
+      }
 
       case "logoutAllDevices":
         await supabase.auth.admin.signOut(userContext.id, 'global');
