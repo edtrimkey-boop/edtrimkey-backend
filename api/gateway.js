@@ -912,20 +912,32 @@ export default async function handler(req, res) {
       }
 
       case "updateMyProfile": {
-        // 1. Update phone in users table
-        await supabase.from('users').update({ 
+        // 1. Update Supabase Auth identity safely
+        const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(userContext.id, { 
+            email: payload.email, 
+            user_metadata: { full_name: payload.name } 
+        });
+        if (authErr) throw new Error("Identity Update Error: " + authErr.message);
+
+        // 2. Update Public Users table
+        const { error: userErr } = await supabaseAdmin.from('users').update({ 
+            full_name: payload.name,
+            email: payload.email,
             phone_number: payload.phone 
         }).eq('auth_user_id', userContext.id);
+        if (userErr) throw new Error("Database Error: " + userErr.message);
 
-        // 2. Fetch user's public ID
-        const { data: me } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
-
-        // 3. Update teacher_profiles (Class & Subjects)
-        const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()) : [];
-        await supabase.from('teacher_profiles').update({ 
-            assigned_class: payload.assignedClass,
-            subject_handles: subjectsArr
-        }).eq('user_id', me.id);
+        // 3. Autonomously update academic roles if user is an Admin
+        if (payload.role === 'admin' || payload.role === 'super admin' || payload.role === 'system admin') {
+            const { data: me } = await supabaseAdmin.from('users').select('id').eq('auth_user_id', userContext.id).single();
+            if (me) {
+                const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()) : [];
+                await supabaseAdmin.from('teacher_profiles').update({ 
+                    assigned_class: payload.assignedClass,
+                    subject_handles: subjectsArr
+                }).eq('user_id', me.id);
+            }
+        }
 
         result = { success: true, message: "Profile updated successfully." };
         break;
@@ -1166,7 +1178,7 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
       }
-      
+
       // ==========================================
       // SCALABLE COMMUNICATION ENGINE
       // ==========================================

@@ -2624,14 +2624,14 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
       
       <div style="background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border); padding:15px; margin-bottom: 25px;">
           <div class="form-group" style="margin-bottom:15px;">
-            <label class="label-text" style="color:var(--accent);">Assigned Class (Read-Only)</label>
+            <label class="label-text" id="lblEditClass" style="color:var(--accent);">Assigned Class (Read-Only)</label>
             <input type="text" id="editMyClass" class="form-input" disabled style="opacity:0.6;">
           </div>
           <div class="form-group" style="margin-bottom:15px;">
-            <label class="label-text" style="color:var(--accent);">Subjects (Read-Only)</label>
+            <label class="label-text" id="lblEditSubjects" style="color:var(--accent);">Subjects (Read-Only)</label>
             <input type="text" id="editMySubjects" class="form-input" disabled style="opacity:0.6;">
           </div>
-          <button type="button" class="btn-warning" style="width:100%; font-size:11px; padding:10px;" onclick="requestAcademicChange()">Request Change to Class/Subjects</button>
+          <button type="button" id="btnRequestAcademicChange" class="btn-warning" style="width:100%; font-size:11px; padding:10px;" onclick="requestAcademicChange()">Request Change to Class/Subjects</button>
       </div>
 
       <button type="submit" id="btnSaveMyProfile" style="width:100%; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:#000;">Save Changes</button>
@@ -7689,8 +7689,39 @@ function openUserProfileEditor() {
     document.getElementById('editMyName').value = globalUser.name || '';
     document.getElementById('editMyEmail').value = globalUser.email || '';
     document.getElementById('editMyPhone').value = globalUser.phone || ''; 
-    document.getElementById('editMyClass').value = globalUser.assignedClass || 'Not Assigned'; 
-    document.getElementById('editMySubjects').value = (globalUser.subjects && globalUser.subjects !== 'Not Assigned') ? globalUser.subjects : 'No Subjects';
+    document.getElementById('editMyClass').value = globalUser.assignedClass || ''; 
+    document.getElementById('editMySubjects').value = (globalUser.subjects && globalUser.subjects !== 'Not Assigned') ? globalUser.subjects : '';
+
+    const isPrivileged = (globalUser.role === 'admin' || globalUser.role === 'super admin' || globalUser.role === 'system admin');
+    
+    const classInput = document.getElementById('editMyClass');
+    const subjectsInput = document.getElementById('editMySubjects');
+    const reqBtn = document.getElementById('btnRequestAcademicChange');
+
+    if (isPrivileged) {
+        // Unlock inputs for Admins
+        classInput.disabled = false;
+        classInput.style.opacity = '1';
+        subjectsInput.disabled = false;
+        subjectsInput.style.opacity = '1';
+        if (reqBtn) reqBtn.style.display = 'none';
+        
+        // Update labels to reflect editability
+        document.getElementById('lblEditClass').innerText = "Assigned Class";
+        document.getElementById('lblEditSubjects').innerText = "Subjects (Comma Separated)";
+    } else {
+        // Lock inputs for Teachers/Operators
+        classInput.disabled = true;
+        classInput.style.opacity = '0.6';
+        subjectsInput.disabled = true;
+        subjectsInput.style.opacity = '0.6';
+        if (reqBtn) reqBtn.style.display = 'block';
+        
+        // Update labels to show read-only status
+        document.getElementById('lblEditClass').innerText = "Assigned Class (Read-Only)";
+        document.getElementById('lblEditSubjects').innerText = "Subjects (Read-Only)";
+    }
+
     openModal('userProfileModal');
 }
 
@@ -7702,7 +7733,10 @@ function submitUserProfileEdit(e) {
     let payload = {
         name: document.getElementById('editMyName').value,
         email: document.getElementById('editMyEmail').value,
-        phone: document.getElementById('editMyPhone').value
+        phone: document.getElementById('editMyPhone').value,
+        role: globalUser.role, // Pass the role to the backend
+        assignedClass: document.getElementById('editMyClass').value,
+        subjects: document.getElementById('editMySubjects').value
     };
     
     serverCall('updateMyProfile', payload)
