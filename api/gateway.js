@@ -728,37 +728,46 @@ export default async function handler(req, res) {
       case "submitInstituteRegistration": {
         const tempPassword = "TK-" + crypto.randomBytes(4).toString('hex') + "!";
         
-        // 1. Create Institute (FIXED COLUMN NAME)
+        // 1. Create Institute
         const { data: newInst, error: instErr } = await supabaseAdmin.from('institutes').insert([{
-            institute_code: payload.instCode, // Changed from 'code'
+            institute_code: payload.instCode,
             institute_name: payload.instName, 
             logo_url: payload.logoUrl
         }]).select().single();
         if (instErr || !newInst) throw new Error("Institute DB Error: " + (instErr?.message || "Failed to create institute. Check if the Institute Code is already in use."));
 
-        // 2. Create Auth User (WITH SAFE DESTRUCTURING)
+        // 2. Create Auth User
         const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.createUser({ 
             email: payload.adminEmail, password: tempPassword, email_confirm: true 
         });
         if (authErr) throw new Error("Auth Error: " + authErr.message);
         if (!authData || !authData.user) throw new Error("Auth Error: Failed to generate user account.");
 
-        // 3. Insert Admin User Profile
-        const { error: userErr } = await supabaseAdmin.from('users').insert([{
+        // 3. Insert Admin User Profile (Return the new user ID)
+        const { data: newUser, error: userErr } = await supabaseAdmin.from('users').insert([{
             auth_user_id: authData.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
             role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, 
             status: 'Pending'
-        }]);
+        }]).select('id').single();
         if (userErr) throw new Error("User DB Error: " + userErr.message);
 
-        // 4. Create Subscription (WITH ERROR CATCHING)
+        // 4. Create Teacher Profile (Fixes the missing profile bug for Admins)
+        const { error: tpErr } = await supabaseAdmin.from('teacher_profiles').insert([{
+            user_id: newUser.id,
+            assigned_class: null,
+            subject_handles: []
+        }]);
+        if (tpErr) throw new Error("Profile DB Error: " + tpErr.message);
+
+        // 5. Create Subscription with Dynamic Payment Status
+        const pStatus = payload.paymentStatus === 'Trial' ? 'Trial' : (payload.paymentStatus === 'Pending' ? 'Pending' : 'Paid');
         const { data: initialSub, error: subErr } = await supabaseAdmin.from('subscriptions').insert([{
             institute_id: newInst.id, subscription_type: "Complete ERP", plan_name: payload.planType,
-            billing_cycle: "Yearly", status: "Active", payment_status: "Trial", start_date: new Date().toISOString(), purchase_value: 0
+            billing_cycle: "Yearly", status: "Active", payment_status: pStatus, start_date: new Date().toISOString(), purchase_value: payload.amountPaid || 0
         }]).select().single();
         if (subErr || !initialSub) throw new Error("Subscription Error: " + (subErr?.message || "Failed to generate subscription."));
 
-        // 5. Apply Subscription Features
+        // 6. Apply Subscription Features
         const { error: featErr } = await supabaseAdmin.from('subscription_features').insert([
             { subscription_id: initialSub.id, feature_key: 'paper_formatter', enabled: true, total_limit: payload.papersTotal, remaining: payload.papersTotal },
             { subscription_id: initialSub.id, feature_key: 'sms', enabled: true, total_limit: payload.smsTotal, remaining: payload.smsTotal },
@@ -768,7 +777,24 @@ export default async function handler(req, res) {
         ]);
         if (featErr) throw new Error("Features DB Error: " + featErr.message);
 
-        // 6. Dispatch Email
+        // 7. Log to Billing Ledger if Upfront Payment was made
+        if (pStatus === 'Paid' && payload.amountPaid > 0) {
+            const { error: ledgerErr } = await supabaseAdmin.from('billing_ledger').insert([{
+                ledger_ref: 'TXN-' + Date.now(),
+                institute_id: newInst.id,
+                user_id: newUser.id,
+                service_type: 'App Subscriptions',
+                transaction_type: 'SUBSCRIPTION_PURCHASE',
+                direction: 'CREDIT',
+                amount: payload.amountPaid,
+                status: 'POSTED',
+                payment_method: payload.paymentMethod || 'Cash',
+                description: `Initial setup payment for ${payload.planType} plan`
+            }]);
+            if (ledgerErr) console.error("Ledger Error:", ledgerErr.message);
+        }
+
+        // 8. Dispatch Email
         await dispatchWelcomeMessage(payload.adminEmail, payload.clientName, tempPassword, payload.instName, 'Institute Admin', payload.logoUrl);
 
         result = { success: true, message: "Institute Registered. Credentials Dispatched." };

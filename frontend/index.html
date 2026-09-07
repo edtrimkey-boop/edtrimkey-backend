@@ -1379,32 +1379,44 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
     <button type="button" class="close-minimal" onclick="closeModal('instRegModal')">✖</button>
     <h2 style="font-family:'Overpass',sans-serif; font-weight:800; color:var(--success); margin-top:0; margin-bottom:25px; display:flex; align-items:center; gap:10px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:0px;"><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M18 4.933V21"/><path d="m4 6 7.106-3.79a2 2 0 0 1 1.788 0L20 6"/><path d="m6 11-3.52 2.147a1 1 0 0 0-.48.854V19a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a1 1 0 0 0-.48-.853L18 11"/><path d="M6 4.933V21"/><circle cx="12" cy="9" r="2"/></svg> Register New Institute</h2>
     <form id="nativeInstRegForm" onsubmit="handleInstRegSubmit(event)">
+
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group"><label class="label-text">Client Name <span class="req">*</span></label><input type="text" id="regClientName" class="form-input" required placeholder="e.g. John Doe" /></div>
         <div class="form-group"><label class="label-text">Admin Email <span class="req">*</span></label><input type="email" id="regAdminEmail" class="form-input" required placeholder="admin@institute.com" /></div>
       </div>
+
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group"><label class="label-text">Institute Name <span class="req">*</span></label><input type="text" id="regInstName" class="form-input" required placeholder="e.g. Apex Academy" /></div>
         <div class="form-group"><label class="label-text">Institute Code <span class="req">*</span></label><input type="text" id="regInstCode" class="form-input" required placeholder="e.g. APX01" style="text-transform: uppercase;" /></div>
       </div>
+
       <div class="form-group" style="margin-bottom: 15px;"><label class="label-text">Address <span class="req">*</span></label><textarea id="regAddress" class="form-input" required placeholder="Full physical address..." rows="2" style="resize:vertical;"></textarea></div>
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group"><label class="label-text">Plan Type <span class="req">*</span></label><select id="regPlanType" class="form-input" required><option value="" disabled selected>Select Plan...</option><option value="Standard">Standard</option><option value="Half Yearly">Half Yearly</option><option value="Annual">Annual</option></select></div>
+        <div class="form-group"><label class="label-text">Payment Status <span class="req">*</span></label><select id="regPaymentStatus" class="form-input" required onchange="toggleRegPaymentAmount()"><option value="Trial">Trial / Pay Later</option><option value="Paid Online">Paid Online Upfront</option><option value="Paid Cash">Paid Cash Upfront</option></select></div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom: 15px;">
+        <div class="form-group"><label class="label-text">Amount Paid (₹)</label><input type="number" id="regAmountPaid" class="form-input" placeholder="0" disabled /></div>
         <div class="form-group"><label class="label-text">SMS Total <span class="req">*</span></label><input type="number" id="regSmsTotal" class="form-input" required placeholder="e.g. 10000" /></div>
       </div>
+
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group"><label class="label-text">Papers Total <span class="req">*</span></label><input type="number" id="regPapersTotal" class="form-input" required placeholder="e.g. 50" /></div>
         <div class="form-group"><label class="label-text">Questions Per Paper <span class="req">*</span></label><input type="number" id="regQuestionsPerPaper" class="form-input" required placeholder="e.g. 30" /></div>
       </div>
+
       <div class="grid-2" style="margin-bottom: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border);">
         <div class="form-group" style="margin-bottom:0;"><label class="label-text" style="color:var(--brand);">Attendance App</label><select id="regAttToggle" class="form-input" style="margin-bottom:0;"><option value="NO">NO</option><option value="YES">YES</option></select></div>
         <div class="form-group" style="margin-bottom:0;"><label class="label-text" style="color:var(--brand);">Admission App</label><select id="regAdmToggle" class="form-input" style="margin-bottom:0;"><option value="NO">NO</option><option value="YES">YES</option></select></div>
         <div class="form-group" style="margin-bottom:0; grid-column: span 2;"><label class="label-text" style="color:var(--brand);">Fee App</label><select id="regFeeToggle" class="form-input" style="margin-bottom:0;"><option value="NO">NO</option><option value="YES">YES</option></select></div>
       </div>
+
       <div class="form-group" style="margin-bottom: 25px;">
         <label class="label-text">Institute Logo <span class="req">*</span></label>
         <div class="upload-box" onclick="document.getElementById('regLogoInput').click()"><p id="regLogoStatusText" style="margin:0; font-size:13px; color:var(--text-muted); font-weight: 600;">Click to attach high-quality Logo (PNG/JPG)</p><input type="file" id="regLogoInput" accept="image/png, image/jpeg, image/jpg" style="display:none;" onchange="handleInstLogoSelection(this)" required /></div>
       </div>
+
       <div style="display:flex; justify-content:space-between; align-items: center; margin-top:20px;">
         <button type="button" onclick="clearInstRegForm()" style="background:transparent; border:1px solid #EF4444; color:#EF4444; padding:12px 20px; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer;">Clear Form</button>
         <button type="submit" id="submitInstRegBtn" style="background:var(--success); border:none; color:#000; padding:12px 24px; border-radius:6px; font-size:14px; font-weight:800; cursor:pointer; box-shadow:0 0 12px rgba(46, 204, 113, 0.4);">Register Institute</button>
@@ -5500,6 +5512,9 @@ async function handleInstRegSubmit(e) {
       instCode: instCodeRaw,
       instName: document.getElementById('regInstName').value,
       planType: document.getElementById('regPlanType').value,
+      paymentStatus: document.getElementById('regPaymentStatus').value, // NEW
+      paymentMethod: document.getElementById('regPaymentStatus').value.replace('Paid ', ''), // NEW ('Online' or 'Cash')
+      amountPaid: document.getElementById('regAmountPaid').value || 0, // NEW
       papersTotal: document.getElementById('regPapersTotal').value,
       questionsPerPaper: document.getElementById('regQuestionsPerPaper').value,
       clientName: document.getElementById('regClientName').value,
@@ -7544,6 +7559,18 @@ async function saveAdminSettings(btn) {
     }
 }
 
+function toggleRegPaymentAmount() {
+    const status = document.getElementById('regPaymentStatus').value;
+    const amtInput = document.getElementById('regAmountPaid');
+    if (status.includes('Paid')) {
+        amtInput.disabled = false;
+        amtInput.required = true;
+    } else {
+        amtInput.disabled = true;
+        amtInput.required = false;
+        amtInput.value = '';
+    }
+}
 
 </script>
 </body>
