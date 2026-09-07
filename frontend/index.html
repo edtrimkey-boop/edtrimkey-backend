@@ -1875,7 +1875,11 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
         <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom: 30px;">
           
           <div class="panel" id="profileCard" style="flex:1; min-width:320px; margin-bottom:0;">
-            <div class="panel-header" style="border:none; padding:0; margin-bottom:15px;"><h3 id="profileCardTitle">Your Profile</h3></div>
+            <div class="panel-header" style="border:none; padding:0; margin-bottom:15px;">
+               <h3 id="profileCardTitle">Your Profile</h3>
+               <!-- 🔥 FIXED: Removed display:none and inst-admin restrictions -->
+               <button class="btn-sm btn-outline" onclick="openUserProfileEditor()">Edit Profile</button>
+            </div>
             <p style="margin-bottom:8px; font-weight:600; color:var(--text-muted);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:bottom; margin-right:8px;"><path d="M17.925 20.056a6 6 0 0 0-11.851.001"/><circle cx="12" cy="11" r="4"/><circle cx="12" cy="12" r="10"/></svg>  <span id="v1-teacher" style="color:white; font-weight:800;"></span></p>
             <p style="margin-bottom:8px; font-weight:600; color:var(--text-muted);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:bottom; margin-right:8px;"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg> <span id="v1-subject" style="color:white; font-weight:800;"></span></p>
             <p id="profileInstRow" style="margin-bottom:8px; font-weight:600; color:var(--text-muted);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:bottom; margin-right:8px;"><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M18 4.933V21"/><path d="m4 6 7.106-3.79a2 2 0 0 1 1.788 0L20 6"/><path d="m6 11-3.52 2.147a1 1 0 0 0-.48.854V19a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a1 1 0 0 0-.48-.853L18 11"/><path d="M6 4.933V21"/><circle cx="12" cy="9" r="2"/></svg><span id="v1-institute" style="color:white; font-weight:800;"></span></p>
@@ -2595,6 +2599,43 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
         </button>
     </div>
 
+  </div>
+</div>
+
+<div id="userProfileModal" class="glass-overlay">
+  <div class="glass-box" style="max-width: 500px; padding: 40px; text-align: left;">
+    <button type="button" class="close-minimal" onclick="closeModal('userProfileModal')">✖</button>
+    <h2 style="color:var(--brand); margin-bottom: 20px; font-weight:800;">Edit My Profile</h2>
+    <p style="color:var(--text-muted); font-size:12px; margin-bottom:20px;">Update your personal details. Changes to academic roles require admin approval.</p>
+    
+    <form id="userProfileForm" onsubmit="submitUserProfileEdit(event)">
+      <div class="form-group" style="margin-bottom:15px;">
+        <label class="label-text">Full Name</label>
+        <input type="text" id="editMyName" class="form-input" required>
+      </div>
+      <div class="form-group" style="margin-bottom:15px;">
+        <label class="label-text">Email Address (Login ID)</label>
+        <input type="email" id="editMyEmail" class="form-input" required>
+      </div>
+      <div class="form-group" style="margin-bottom:15px;">
+        <label class="label-text">Contact Number</label>
+        <input type="text" id="editMyPhone" class="form-input" placeholder="e.g. 9876543210" required>
+      </div>
+      
+      <div style="background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border); padding:15px; margin-bottom: 25px;">
+          <div class="form-group" style="margin-bottom:15px;">
+            <label class="label-text" style="color:var(--accent);">Assigned Class (Read-Only)</label>
+            <input type="text" id="editMyClass" class="form-input" disabled style="opacity:0.6;">
+          </div>
+          <div class="form-group" style="margin-bottom:15px;">
+            <label class="label-text" style="color:var(--accent);">Subjects (Read-Only)</label>
+            <input type="text" id="editMySubjects" class="form-input" disabled style="opacity:0.6;">
+          </div>
+          <button type="button" class="btn-warning" style="width:100%; font-size:11px; padding:10px;" onclick="requestAcademicChange()">Request Change to Class/Subjects</button>
+      </div>
+
+      <button type="submit" id="btnSaveMyProfile" style="width:100%; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:#000;">Save Changes</button>
+    </form>
   </div>
 </div>
 
@@ -4082,23 +4123,44 @@ function applyRoleUI(p) {
 
   if (userRole === "admin" || userRole === "all") {
     if (p.instDetails && (p.instDetails.paymentStatus === 'Trial' || p.instDetails.paymentStatus === 'Pending')) {
-        let bannerHtml = `
-        <div style="background: linear-gradient(135deg, var(--accent), #D97706); color: #000; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);">
-            <div style="font-weight: 800; font-size: 13px;">⚠️ Account Activation Pending</div>
-            <div style="font-size: 12px; font-weight: 600;">Your institute is currently in Trial mode. Full access will be granted upon payment.</div>
-            <button onclick="switchTab('inst-billing');" style="background: #000; color: var(--accent); border: none; padding: 6px 16px; border-radius: 6px; font-weight: 900; cursor: pointer;">PAY NOW</button>
-        </div>`;
+        let amountToPay = Number(p.instDetails.purchaseValue) || 0;
+        let paymentStatus = p.instDetails.paymentStatus;
         
-        let overviewView = document.getElementById('view-overview');
-        if (overviewView) {
-            // Remove existing banner if it exists, then insert at the top
-            let oldBanner = document.getElementById('billingBanner');
-            if (oldBanner) oldBanner.remove();
-            
-            let bannerDiv = document.createElement('div');
-            bannerDiv.id = 'billingBanner';
-            bannerDiv.innerHTML = bannerHtml;
-            overviewView.prepend(bannerDiv);
+        let bannerHtml = '';
+        
+        if (paymentStatus === 'Pending' && amountToPay > 0) {
+            // Actual Payment Pending
+            bannerHtml = `
+            <div style="background: linear-gradient(135deg, var(--danger), #B91C1C); color: #fff; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
+                <div>
+                    <div style="font-weight: 900; font-size: 14px;">⚠️ Action Required: Outstanding Balance</div>
+                    <div style="font-size: 12px; font-weight: 600; opacity: 0.9;">Your institute setup requires a payment of ₹${amountToPay} to activate full features.</div>
+                </div>
+                <button onclick="triggerInitialPayment(${amountToPay})" style="background: #fff; color: var(--danger); border: none; padding: 8px 18px; border-radius: 6px; font-weight: 900; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">PAY ₹${amountToPay}</button>
+            </div>`;
+        } else {
+            // Trial / Exploring Mode (Covers ₹0 bug)
+            bannerHtml = `
+            <div style="background: linear-gradient(135deg, var(--brand), #1A9CBF); color: #000; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(38, 195, 234, 0.3);">
+                <div>
+                    <div style="font-weight: 900; font-size: 14px;">🚀 Welcome to Your Trial</div>
+                    <div style="font-size: 12px; font-weight: 600; opacity: 0.9;">Explore the command center features. Upgrade your subscription when you're ready.</div>
+                </div>
+                <button onclick="switchTab('inst-billing');" style="background: #000; color: var(--brand); border: none; padding: 8px 18px; border-radius: 6px; font-weight: 900; cursor: pointer; transition: 0.2s;">VIEW PLANS</button>
+            </div>`;
+        }
+        
+        if (bannerHtml) {
+            let overviewView = document.getElementById('view-overview');
+            if (overviewView) {
+                let oldBanner = document.getElementById('billingBanner');
+                if (oldBanner) oldBanner.remove();
+                
+                let bannerDiv = document.createElement('div');
+                bannerDiv.id = 'billingBanner';
+                bannerDiv.innerHTML = bannerHtml;
+                overviewView.prepend(bannerDiv);
+            }
         }
     }
   }
@@ -7596,6 +7658,74 @@ function toggleRegPaymentAmount() {
         amtInput.required = false;
         amtInput.value = '';
     }
+}
+
+function triggerInitialPayment(amount) {
+    switchTab('inst-billing');
+    
+    if (amount <= 0) return showPopup("No pending amount found.", "info");
+
+    openModal('syncLoader');
+    serverCall('createPaymentLink', { 
+        instCode: globalUser.code, 
+        type: 'Initial Registration Setup', 
+        amount: amount, 
+        email: globalUser.email 
+    })
+    .then(res => {
+        closeModal('syncLoader');
+        if(res.success) {
+            document.getElementById('payRefId').innerText = res.refId;
+            document.getElementById('payAmountDisplay').innerText = "₹" + res.amount;
+            openModal('paymentModal');
+        } else { 
+            showPopup("Error: " + res.message); 
+        }
+    })
+    .catch(err => { closeModal('syncLoader'); showPopup(err.message); });
+}
+
+function openUserProfileEditor() {
+    document.getElementById('editMyName').value = globalUser.name || '';
+    document.getElementById('editMyEmail').value = globalUser.email || '';
+    document.getElementById('editMyPhone').value = globalUser.phone || ''; 
+    document.getElementById('editMyClass').value = globalUser.assignedClass || 'Not Assigned'; 
+    document.getElementById('editMySubjects').value = (globalUser.subjects && globalUser.subjects !== 'Not Assigned') ? globalUser.subjects : 'No Subjects';
+    openModal('userProfileModal');
+}
+
+function submitUserProfileEdit(e) {
+    e.preventDefault();
+    let btn = document.getElementById('btnSaveMyProfile');
+    triggerBtnAnim(btn);
+    
+    let payload = {
+        name: document.getElementById('editMyName').value,
+        email: document.getElementById('editMyEmail').value,
+        phone: document.getElementById('editMyPhone').value
+    };
+    
+    serverCall('updateMyProfile', payload)
+      .then(res => {
+          resetBtnAnim(btn);
+          if (res.success) {
+              closeModal('userProfileModal');
+              initDashboard(globalUser.email, Memory.getToken(), "Profile Updated Successfully!");
+          } else showPopup(res.message, "error");
+      })
+      .catch(err => { resetBtnAnim(btn); showPopup(err.message, "error"); });
+}
+
+function requestAcademicChange() {
+    askConfirm("Send a request to your administrator to update your Class and Subject handles?", () => {
+        openModal('syncLoader');
+        serverCall('requestAcademicChange', { userName: globalUser.name })
+            .then(res => {
+                closeModal('syncLoader');
+                if(res.success) showPopup("Request sent to administration.", "success");
+            })
+            .catch(err => { closeModal('syncLoader'); showPopup(err.message, "error"); });
+    });
 }
 
 </script>

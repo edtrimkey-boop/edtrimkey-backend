@@ -1099,8 +1099,9 @@ export default async function handler(req, res) {
         result = { success: true, message: `Status securely changed to ${status}` };
         break;
       }
-
-case "updateOperatorUpi": {
+      
+      
+      case "updateOperatorUpi": {
         // 1. Find the internal user ID using the secure Auth Context
         const { data: opUser } = await supabase
             .from('users')
@@ -1123,6 +1124,49 @@ case "updateOperatorUpi": {
         break;
       }
         
+
+
+      case "updateMyProfile": {
+        // 1. Update Supabase Auth identity safely
+        const { error: authErr } = await supabaseAdmin.auth.admin.updateUserById(userContext.id, { 
+            email: payload.email, 
+            user_metadata: { full_name: payload.name } 
+        });
+        if (authErr) throw new Error("Identity Update Error: " + authErr.message);
+
+        // 2. Update Public Users table
+        const { error: userErr } = await supabaseAdmin.from('users').update({ 
+            full_name: payload.name,
+            email: payload.email,
+            phone_number: payload.phone 
+        }).eq('auth_user_id', userContext.id);
+        if (userErr) throw new Error("Database Error: " + userErr.message);
+
+        result = { success: true, message: "Profile updated successfully." };
+        break;
+      }
+
+      case "requestAcademicChange": {
+        const { data: senderObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
+        if (!senderObj) throw new Error("User mapping failed.");
+
+        // Dispatch a request notification to Admins
+        await supabase.from('notifications').insert([{
+            sender_id: senderObj.id,
+            institute_id: senderObj.institute_id,
+            title: "Academic Profile Change Request",
+            message: `${payload.userName} has requested an update to their Assigned Class / Subjects. Please review their profile in the Directory.`,
+            type: "system_alert",
+            status: "sent",
+            reference_id: "PROFILE-REQUEST",
+            target_roles: ['admin', 'super admin'],
+            target_users: []
+        }]);
+        
+        result = { success: true };
+        break;
+      }
+      
       // ==========================================
       // SCALABLE COMMUNICATION ENGINE
       // ==========================================
