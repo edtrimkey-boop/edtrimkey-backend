@@ -252,10 +252,11 @@ export default async function handler(req, res) {
 
         if (activeSubs.length > 0) {
             const primarySub = activeSubs[0]; 
-            mainPlan = primarySub.plan_name || "Standard";
+           mainPlan = primarySub.plan_name || "Standard";
             mainStart = primarySub.start_date || "N/A";
             mainRenew = primarySub.renewal_date || "N/A";
             mainValue = primarySub.purchase_value;
+            let mainPaymentStatus = primarySub.payment_status || "Pending"; // ADD THIS
 
             activeSubs.forEach(sub => {
                 if (sub.subscription_features) {
@@ -295,6 +296,7 @@ export default async function handler(req, res) {
             instDetails: {
                 ...userData.institutes,
                 plan: mainPlan, startDate: mainStart, renewal: mainRenew, purchaseValue: mainValue,
+                paymentStatus: mainPaymentStatus, // ADD THIS TO THE PAYLOAD
                 papersTotal: papersTotal, papersLeft: papersLeft, rcTotal: rcTotal, rcLeft: rcLeft,
                 acTotal: acTotal, acLeft: acLeft, smsTotal: smsTotal, smsRemaining: smsRemaining
             },
@@ -743,11 +745,12 @@ export default async function handler(req, res) {
         if (authErr) throw new Error("Auth Error: " + authErr.message);
         if (!authData || !authData.user) throw new Error("Auth Error: Failed to generate user account.");
 
-        // 3. Insert Admin User Profile (Return the new user ID)
+        // 3. Insert Admin User Profile 
         const { data: newUser, error: userErr } = await supabaseAdmin.from('users').insert([{
             auth_user_id: authData.user.id, 
             email: payload.adminEmail, 
             full_name: payload.clientName || "Admin",
+            phone_number: payload.adminPhone || null, // NEW: Maps phone number
             role: 'admin', 
             institute_id: newInst.id, 
             status: 'Pending'
@@ -757,7 +760,7 @@ export default async function handler(req, res) {
         // 4. Create Teacher Profile (Fixes the missing profile bug for Admins)
         const { error: tpErr } = await supabaseAdmin.from('teacher_profiles').insert([{
             user_id: newUser.id,
-            assigned_class: All,
+            assigned_class: 'All',
             subject_handles: []
         }]);
         if (tpErr) throw new Error("Profile DB Error: " + tpErr.message);
@@ -795,6 +798,21 @@ export default async function handler(req, res) {
                 description: `Initial setup payment for ${payload.planType} plan`
             }]);
             if (ledgerErr) console.error("Ledger Error:", ledgerErr.message);
+        }
+
+        // 6. Push Automated "Pay Now" Notification
+        if (pStatus === 'Trial' || pStatus === 'Pending') {
+            await supabaseAdmin.from('notifications').insert([{
+                sender_id: null, // System generated
+                institute_id: newInst.id,
+                title: "Welcome to Ed-Trim Key! 🚀",
+                message: "Your institute is registered. Please visit 'My Billing' to complete your payment and unlock all features.",
+                type: "system_alert",
+                status: "sent",
+                reference_id: "BILLING-REQUIRED",
+                target_roles: ['admin'],
+                target_users: [newUser.id]
+            }]);
         }
 
         // 8. Dispatch Email
@@ -878,6 +896,26 @@ export default async function handler(req, res) {
             await dispatchPushNotification(opToAssign.id, "New Job Assigned", `Job ${payload.jobId} assigned to you.`);
         }
         result = { success: true, message: `Job officially assigned.` };
+        break;
+      }
+
+      case "updateMyProfile": {
+        // 1. Update phone in users table
+        await supabase.from('users').update({ 
+            phone_number: payload.phone 
+        }).eq('auth_user_id', userContext.id);
+
+        // 2. Fetch user's public ID
+        const { data: me } = await supabase.from('users').select('id').eq('auth_user_id', userContext.id).single();
+
+        // 3. Update teacher_profiles (Class & Subjects)
+        const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()) : [];
+        await supabase.from('teacher_profiles').update({ 
+            assigned_class: payload.assignedClass,
+            subject_handles: subjectsArr
+        }).eq('user_id', me.id);
+
+        result = { success: true, message: "Profile updated successfully." };
         break;
       }
 
