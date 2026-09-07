@@ -1053,21 +1053,41 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 <div id="toastContainer"></div>
 <input type="file" id="profilePicInput" style="display:none;" accept="image/png, image/jpeg, image/jpg">
 
+<!-- =======================================================
+     SYSTEM MODALS (UNIFIED PREMIUM GLASS DESIGN)
+     ======================================================= -->
+
 <div id="cropperOverlay" class="glass-overlay">
-  <div class="glass-box" style="max-width: 500px; text-align: center; padding: 25px;">
-      <h3 style="color:white; font-size:18px; margin-bottom:15px; font-weight:800;">Adjust Profile Picture</h3>
-      <p style="font-size:12px; color:var(--text-muted); margin-bottom:20px;">Drag to position and scale to perfectly fit the 1:1 circle ratio.</p>
-      <div class="cropper-container"><img id="cropperImage"></div>
-      <div style="display: flex; gap: 12px;">
-          <button onclick="closeModal('cropperOverlay')" class="btn-outline" style="flex:1; border-color:var(--text-muted); color:var(--text-muted);">Cancel</button>
-          <button onclick="cropAndUpload()" class="btn-success" style="flex:1; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:black;">Upload Photo</button>
-      </div>
+  <div class="glass-box" style="max-width: 500px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Adjust Profile Picture
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('cropperOverlay')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
+    <p style="font-size:12px; color:var(--text-muted); margin-bottom:20px;">Drag to position and scale to perfectly fit the 1:1 circle ratio.</p>
+    <div class="cropper-container"><img id="cropperImage"></div>
+    <div style="display: flex; gap: 12px;">
+        <button onclick="closeModal('cropperOverlay')" class="btn-outline" style="flex:1; border-color:var(--text-muted); color:var(--text-muted);">Cancel</button>
+        <button onclick="cropAndUpload()" class="btn-success" style="flex:1; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:black;">Upload Photo</button>
+    </div>
   </div>
 </div>
 
 <div id="confirmModal" class="glass-overlay">
-  <div class="glass-box" style="text-align: center; max-width:400px;">
-    <h3 style="color:var(--brand); margin-bottom:15px; font-size:18px; font-weight: 800;">Confirm Action</h3>
+  <div class="glass-box" style="max-width: 450px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+          Confirm Action
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('confirmModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
     <p id="confirmText" style="margin-bottom:30px; line-height:1.6; color:var(--text); font-size:14px; font-weight: 600;"></p>
     <div style="display:flex; gap:12px;">
       <button onclick="closeModal('confirmModal')" class="btn-outline" style="flex:1; border-color:var(--text-muted); color:var(--text-muted);">Cancel</button>
@@ -1077,24 +1097,38 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 </div>
 
 <div id="passwordModal" class="glass-overlay">
-  <div class="glass-box" style="text-align: center; max-width:400px; padding: 40px;">
-    <button type="button" class="close-minimal" onclick="closeModal('passwordModal')">✖</button>
-    <h3 style="color:var(--brand); margin-bottom:15px; font-size:20px; font-weight: 800;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:text-middle; margin-right:8px;"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></svg>Change Password</h3>
+  <div class="glass-box" style="max-width: 450px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><circle cx="12" cy="16" r="1"/><rect x="3" y="10" width="18" height="12" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></svg>
+          Change Password
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('passwordModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
     <p style="font-size:12px; color:var(--text-muted); margin-bottom:25px; font-weight:600;">Update your security credentials.</p>
     
     <input type="password" id="oldPwInput" class="form-input" placeholder="Current Password" required>
     <input type="password" id="newPwInput" class="form-input" placeholder="New Password" required>
     <input type="password" id="confirmPwInput" class="form-input" placeholder="Confirm New Password" required>
     
-    <button onclick="actionChangePassword(this)" style="width:100%; margin-top:15px; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:black;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:text-bottom; margin-right:8px;"><path d="M20 9.807V6a1 1 0 00-1-1c-2 0-4.49-1.19-6.24-2.72a1.17 1.17 0 00-1.52 0C9.5 3.8 7 5 5 5a1 1 0 00-1 1v7c0 3.88 2.107 6.254 5 7.796"/><path d="M19 17v-2a2 2 0 00-4 0v2"/><rect x="13" y="17" width="8" height="5" rx="1"/></svg>Update Security</button>
+    <button onclick="actionChangePassword(this)" style="width:100%; margin-top:15px; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:black;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="vertical-align:text-bottom; margin-right:8px;"><path d="M20 9.807V6a1 1 0 00-1-1c-2 0-4.49-1.19-6.24-2.72a1.17 1.17 0 00-1.52 0C9.5 3.8 7 5 5 5a1 1 0 00-1 1v7c0 3.88 2.107 6.254 5 7.796"/><path d="M19 17v-2a2 2 0 00-4 0v2"/><rect x="13" y="17" width="8" height="5" rx="1"/></svg> Update Security
+    </button>
   </div>
 </div>
 
 <div id="assignModal" class="glass-overlay">
-  <div class="glass-box">
-    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:15px; margin-bottom:20px;">
-      <h3 style="color:white; font-size:18px; margin:0; font-weight: 800;">Live Dispatcher</h3>
-      <button onclick="closeModal('assignModal')" style="background:rgba(255,255,255,0.05); color:var(--text); border:none; padding:6px 12px; width:auto; font-size: 14px; border-radius: 8px;">✖</button>
+  <div class="glass-box" style="max-width: 500px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:white;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+          Live Dispatcher
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('assignModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
     </div>
     <p style="margin-bottom:20px; font-size:12px; color:var(--text-muted); font-weight:600;">Select an active operator to instantly assign this job.</p>
     <div id="operatorListContainer" style="max-height: 350px; overflow-y: auto; text-align:left; margin-bottom: 20px;"></div>
@@ -1102,15 +1136,25 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 </div>
 
 <div id="payoutModal" class="glass-overlay">
-  <div class="glass-box" style="text-align:center;">
-    <h3 style="color:var(--success); margin-bottom:10px; font-size:18px; font-weight: 800;">Settle Dues</h3>
-    <h2 id="payoutAmount" style="color:white; font-size: 36px; font-weight: 900; margin-bottom:5px;">₹0</h2>
-    <p id="payoutOpName" style="color:var(--brand); font-weight:800; margin-bottom:25px; font-size: 15px;"></p>
-    <div id="qrContainer" style="background:white; padding:15px; border-radius:16px; display:inline-block; margin-bottom:20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-       <img id="upiQrCode" src="" style="width:200px; height:200px; display:none;" />
-       <p id="noUpiMsg" style="color:black; font-weight:bold; font-size:14px; margin: 20px 0; display:none;">No UPI ID Found</p>
+  <div class="glass-box" style="max-width: 450px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--success);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          Settle Dues
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('payoutModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
     </div>
-    <p style="font-size:12px; color:var(--text-muted); margin-bottom:20px; font-weight: 600;">Scan QR to pay via your banking app, then click Mark as Paid.</p>
+    <div style="text-align: center;">
+        <h2 id="payoutAmount" style="color:white; font-size: 36px; font-weight: 900; margin-bottom:5px;">₹0</h2>
+        <p id="payoutOpName" style="color:var(--brand); font-weight:800; margin-bottom:25px; font-size: 15px;"></p>
+        <div id="qrContainer" style="background:white; padding:15px; border-radius:16px; display:inline-block; margin-bottom:20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+           <img id="upiQrCode" src="" style="width:200px; height:200px; display:none;" />
+           <p id="noUpiMsg" style="color:black; font-weight:bold; font-size:14px; margin: 20px 0; display:none;">No UPI ID Found</p>
+        </div>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:20px; font-weight: 600;">Scan QR to pay via your banking app, then click Mark as Paid.</p>
+    </div>
     <div style="display:flex; gap:12px;">
       <button onclick="closeModal('payoutModal')" class="btn-outline" style="flex:1; border-color:var(--text-muted); color:var(--text-muted);">Cancel</button>
       <button id="btnConfirmPayout" class="btn-success" style="flex:1;">Mark as Paid</button>
@@ -1119,26 +1163,45 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 </div>
 
 <div id="customAlert" class="glass-overlay">
-  <div class="glass-box" style="padding: 35px; text-align: center; max-width:400px;">
-    <div id="customAlertIcon" style="margin-bottom: 15px;"></div> 
-    
-    <h3 id="customAlertTitle" style="color:var(--brand); margin-bottom:15px; font-size:20px; font-weight: 800;">System Notice</h3>
-    <p id="customAlertMsg" style="margin-bottom:25px; line-height:1.6; color:var(--text); font-size:14px; font-weight: 600;"></p>
+  <div class="glass-box" style="max-width: 450px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 id="customAlertTitle" style="color:var(--brand);">
+          System Notice
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('customAlert')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
+    <div style="text-align: center; margin-top: 10px;">
+        <div id="customAlertIcon" style="margin-bottom: 15px;"></div> 
+        <p id="customAlertMsg" style="margin-bottom:25px; line-height:1.6; color:var(--text); font-size:14px; font-weight: 600;"></p>
+    </div>
     <button onclick="closeModal('customAlert')" style="width:100%;">Acknowledge</button>
   </div>
 </div>
 
 <div id="paymentModal" class="glass-overlay">
-  <div class="glass-box" style="text-align:center; padding:40px;">
-     <h3 style="color:var(--brand); font-weight:800; margin-bottom:10px;">Complete Payment</h3>
-     <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px;">Ref: <span id="payRefId" style="color:white; font-weight:700;">Loading...</span></p>
-     <h2 id="payAmountDisplay" style="color:var(--success); font-size:36px; font-weight:900; margin-bottom:25px;">₹0</h2>
-     
-     <div style="background:white; padding:15px; border-radius:16px; display:inline-block; margin-bottom:20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-        <img id="payQrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=UPI_PAYMENT" style="width:200px; height:200px; display:block;" />
+  <div class="glass-box" style="max-width: 450px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+     <div class="premium-sticky-header">
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          Complete Payment
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('paymentModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
      </div>
      
-     <p style="font-size:11px; color:var(--text-muted); margin-bottom:25px; font-weight:600; line-height:1.5;">Scan this QR with any UPI app to pay, or use the checkout link sent securely to your email.</p>
+     <div style="text-align: center;">
+         <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px;">Ref: <span id="payRefId" style="color:white; font-weight:700;">Loading...</span></p>
+         <h2 id="payAmountDisplay" style="color:var(--success); font-size:36px; font-weight:900; margin-bottom:25px;">₹0</h2>
+         
+         <div style="background:white; padding:15px; border-radius:16px; display:inline-block; margin-bottom:20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            <img id="payQrImage" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=UPI_PAYMENT" style="width:200px; height:200px; display:block;" />
+         </div>
+         
+         <p style="font-size:11px; color:var(--text-muted); margin-bottom:25px; font-weight:600; line-height:1.5;">Scan this QR with any UPI app to pay, or use the checkout link sent securely to your email.</p>
+     </div>
      
      <div style="display:flex; flex-direction:column; gap:12px;">
        <button class="btn-success" onclick="verifyPayment()" style="width:100%; padding:14px; font-size:14px;">I Have Paid</button>
@@ -1375,16 +1438,21 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 
 <div id="instRegModal" class="glass-overlay">
   <div class="glass-box" style="max-width: 800px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
-    <div class="premium-sticky-header"></div>
-    <button type="button" class="close-minimal" onclick="closeModal('instRegModal')">✖</button>
-    <h2 style="font-family:'Overpass',sans-serif; font-weight:800; color:var(--success); margin-top:0; margin-bottom:25px; display:flex; align-items:center; gap:10px;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:0px;"><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M18 4.933V21"/><path d="m4 6 7.106-3.79a2 2 0 0 1 1.788 0L20 6"/><path d="m6 11-3.52 2.147a1 1 0 0 0-.48.854V19a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a1 1 0 0 0-.48-.853L18 11"/><path d="M6 4.933V21"/><circle cx="12" cy="9" r="2"/></svg> Register New Institute</h2>
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--success);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M18 4.933V21"/><path d="m4 6 7.106-3.79a2 2 0 0 1 1.788 0L20 6"/><path d="m6 11-3.52 2.147a1 1 0 0 0-.48.854V19a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a1 1 0 0 0-.48-.853L18 11"/><path d="M6 4.933V21"/><circle cx="12" cy="9" r="2"/></svg>
+          Register New Institute
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('instRegModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
+    
     <form id="nativeInstRegForm" onsubmit="handleInstRegSubmit(event)">
-
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group"><label class="label-text">Admin Name <span class="req">*</span></label><input type="text" id="regClientName" class="form-input" required placeholder="e.g. John Doe" /></div>
         <div class="form-group"><label class="label-text">Admin Email <span class="req">*</span></label><input type="email" id="regAdminEmail" class="form-input" required placeholder="admin@institute.com" /></div>
       </div>
-      <!-- ADD THIS NEW GRID ROW -->
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group"><label class="label-text">Admin Phone <span class="req">*</span></label><input type="text" id="regAdminPhone" class="form-input" required placeholder="e.g. 9876543210" /></div>
         <div class="form-group"><label class="label-text">Institute Name <span class="req">*</span></label><input type="text" id="regInstName" class="form-input" required placeholder="e.g. Apex Academy" /></div>
@@ -1427,9 +1495,17 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 </div>
 
 <div id="operatorRegModal" class="glass-overlay">
-  <div class="glass-box" style="max-width: 600px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto;">
-    <button type="button" class="close-minimal" onclick="closeModal('operatorRegModal')">✖</button>
-    <h2 style="font-family:'Overpass',sans-serif; font-weight:800; color:var(--brand); margin-top:0; margin-bottom:25px;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:text-bottom; margin-right:4px;"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg> Register Operator</h2>
+  <div class="glass-box" style="max-width: 600px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
+          Register Operator
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('operatorRegModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
+    
     <form id="opRegForm" onsubmit="handleOpRegSubmit(event)">
       <div class="form-group" style="margin-bottom: 15px;">
         <label class="label-text">Email Address <span class="req">*</span></label>
@@ -1454,10 +1530,10 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 
       <div class="form-group" style="margin-bottom: 15px; background:rgba(0,0,0,0.2); padding:15px; border-radius:12px; border:1px solid var(--border);">
         <label class="label-text" style="color:var(--accent);">Work Type <span class="req">*</span></label>
-        <div class="checkbox-grid" id="opRegWorkType" onchange="toggleOpRates()"> <!-- Do this for editOpWorkType too! -->
-          <label class="cb-pill"><input type="checkbox" value="Paper"> Paper Formats</label> <!-- 🔥 FIXED -->
-          <label class="cb-pill"><input type="checkbox" value="Report Card"> Report Cards</label> <!-- 🔥 FIXED -->
-          <label class="cb-pill"><input type="checkbox" value="Admit Card"> Admit Cards</label> <!-- 🔥 FIXED -->
+        <div class="checkbox-grid" id="opRegWorkType" onchange="toggleOpRates()">
+          <label class="cb-pill"><input type="checkbox" value="Paper"> Paper Formats</label>
+          <label class="cb-pill"><input type="checkbox" value="Report Card"> Report Cards</label>
+          <label class="cb-pill"><input type="checkbox" value="Admit Card"> Admit Cards</label>
           <label class="cb-pill"><input type="checkbox" value="ID Card"> ID Cards</label>
           <label class="cb-pill"><input type="checkbox" value="Certificate"> Certificates</label>
         </div>
@@ -1492,9 +1568,16 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 </div>
 
 <div id="operatorEditModal" class="glass-overlay">
-  <div class="glass-box" style="max-width: 600px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto;">
-    <button type="button" class="close-minimal" onclick="closeModal('operatorEditModal')">✖</button>
-    <h2 style="font-family:'Overpass',sans-serif; font-weight:800; color:var(--accent); margin-top:0; margin-bottom:10px;">⚙️ Edit Operator</h2>
+  <div class="glass-box" style="max-width: 600px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--accent);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Edit Operator
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('operatorEditModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
     <p id="editOpNameDisplay" style="color:var(--text-muted); font-weight:600; margin-bottom:25px; font-size:14px;"></p>
     
     <form id="opEditForm" onsubmit="handleOpEditSubmit(event)">
@@ -1551,15 +1634,16 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 <div id="teacherRegModal" class="glass-overlay">
   <div class="glass-box" style="max-width: 800px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
     <div class="premium-sticky-header">
-<h2 style="font-family:'Overpass',sans-serif; font-weight:800; color:var(--brand);  ">
-<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:text-bottom; margin-right:4px;"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg> Register Teacher
-</h2>
-<div style="display:flex; align-items:center; gap:12px;">
-<button type="button" class="close-minimal" onclick="closeModal('teacherRegModal')" style="position:relative; top:0; right:0;">&#10006;</button>
-</div>
-</div>
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
+          Register Teacher
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('teacherRegModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
+    
     <form id="teacherRegForm" onsubmit="handleTeacherRegSubmit(event)">
-      
       <div class="grid-2" style="margin-bottom: 15px;">
         <div class="form-group">
           <label class="label-text">Institute Name</label>
@@ -1622,6 +1706,50 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
       </div>
 
       <button type="submit" id="submitTrRegBtn" style="width:100%; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:black;">Add Teacher to Directory</button>
+    </form>
+  </div>
+</div>
+
+<div id="userProfileModal" class="glass-overlay">
+  <div class="glass-box" style="max-width: 500px; padding: 40px; text-align: left; max-height: 90vh; overflow-y: auto; position: relative;">
+    <div class="premium-sticky-header">
+        <h2 style="color:var(--brand);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:8px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Edit My Profile
+        </h2>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <button type="button" class="close-minimal" onclick="closeModal('userProfileModal')" style="position:relative; top:0; right:0;">✖</button>
+        </div>
+    </div>
+    <p style="color:var(--text-muted); font-size:12px; margin-bottom:20px;">Update your personal details. Changes to academic roles require admin approval.</p>
+    
+    <form id="userProfileForm" onsubmit="submitUserProfileEdit(event)">
+      <div class="form-group" style="margin-bottom:15px;">
+        <label class="label-text">Full Name</label>
+        <input type="text" id="editMyName" class="form-input" required>
+      </div>
+      <div class="form-group" style="margin-bottom:15px;">
+        <label class="label-text">Email Address (Login ID)</label>
+        <input type="email" id="editMyEmail" class="form-input" required>
+      </div>
+      <div class="form-group" style="margin-bottom:15px;">
+        <label class="label-text">Contact Number</label>
+        <input type="text" id="editMyPhone" class="form-input" placeholder="e.g. 9876543210" required>
+      </div>
+      
+      <div style="background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border); padding:15px; margin-bottom: 25px;">
+          <div class="form-group" style="margin-bottom:15px;">
+            <label class="label-text" id="lblEditClass" style="color:var(--accent);">Assigned Class (Read-Only)</label>
+            <input type="text" id="editMyClass" class="form-input" disabled style="opacity:0.6;">
+          </div>
+          <div class="form-group" style="margin-bottom:15px;">
+            <label class="label-text" id="lblEditSubjects" style="color:var(--accent);">Subjects (Read-Only)</label>
+            <input type="text" id="editMySubjects" class="form-input" disabled style="opacity:0.6;">
+          </div>
+          <button type="button" id="btnRequestAcademicChange" class="btn-warning" style="width:100%; font-size:11px; padding:10px;" onclick="requestAcademicChange()">Request Change to Class/Subjects</button>
+      </div>
+
+      <button type="submit" id="btnSaveMyProfile" style="width:100%; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:#000;">Save Changes</button>
     </form>
   </div>
 </div>
@@ -2599,43 +2727,6 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
         </button>
     </div>
 
-  </div>
-</div>
-
-<div id="userProfileModal" class="glass-overlay">
-  <div class="glass-box" style="max-width: 500px; padding: 40px; text-align: left;">
-    <button type="button" class="close-minimal" onclick="closeModal('userProfileModal')">✖</button>
-    <h2 style="color:var(--brand); margin-bottom: 20px; font-weight:800;">Edit My Profile</h2>
-    <p style="color:var(--text-muted); font-size:12px; margin-bottom:20px;">Update your personal details. Changes to academic roles require admin approval.</p>
-    
-    <form id="userProfileForm" onsubmit="submitUserProfileEdit(event)">
-      <div class="form-group" style="margin-bottom:15px;">
-        <label class="label-text">Full Name</label>
-        <input type="text" id="editMyName" class="form-input" required>
-      </div>
-      <div class="form-group" style="margin-bottom:15px;">
-        <label class="label-text">Email Address (Login ID)</label>
-        <input type="email" id="editMyEmail" class="form-input" required>
-      </div>
-      <div class="form-group" style="margin-bottom:15px;">
-        <label class="label-text">Contact Number</label>
-        <input type="text" id="editMyPhone" class="form-input" placeholder="e.g. 9876543210" required>
-      </div>
-      
-      <div style="background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid var(--border); padding:15px; margin-bottom: 25px;">
-          <div class="form-group" style="margin-bottom:15px;">
-            <label class="label-text" id="lblEditClass" style="color:var(--accent);">Assigned Class (Read-Only)</label>
-            <input type="text" id="editMyClass" class="form-input" disabled style="opacity:0.6;">
-          </div>
-          <div class="form-group" style="margin-bottom:15px;">
-            <label class="label-text" id="lblEditSubjects" style="color:var(--accent);">Subjects (Read-Only)</label>
-            <input type="text" id="editMySubjects" class="form-input" disabled style="opacity:0.6;">
-          </div>
-          <button type="button" id="btnRequestAcademicChange" class="btn-warning" style="width:100%; font-size:11px; padding:10px;" onclick="requestAcademicChange()">Request Change to Class/Subjects</button>
-      </div>
-
-      <button type="submit" id="btnSaveMyProfile" style="width:100%; background:linear-gradient(135deg, var(--brand), #1A9CBF); color:#000;">Save Changes</button>
-    </form>
   </div>
 </div>
 
