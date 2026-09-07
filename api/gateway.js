@@ -285,7 +285,9 @@ export default async function handler(req, res) {
             status: userData.status, // <--- CRITICAL FIX: Sends 'Pending' to the frontend to trigger the popup
             instId: userData.institute_id || '',
             email: userData.email, 
-            name: userData.full_name, 
+            name: userData.full_name,
+            phone: userData.phone_number || '', // 🔥 ADDED: Pass phone to frontend
+            assignedClass: teacherRes.data?.assigned_class || '', // 🔥 ADDED: Pass class to frontend 
             role: userData.role, 
             subjects: formattedTeacherSubjects || userData.subjects || userData.operator_profiles?.[0]?.subjects || 'Not Assigned',
             institute: userData.institutes?.institute_name, 
