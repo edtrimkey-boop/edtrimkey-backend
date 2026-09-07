@@ -745,8 +745,11 @@ export default async function handler(req, res) {
 
         // 3. Insert Admin User Profile (Return the new user ID)
         const { data: newUser, error: userErr } = await supabaseAdmin.from('users').insert([{
-            auth_user_id: authData.user.id, email: payload.adminEmail, full_name: payload.clientName || "Admin",
-            role: 'admin', institute_id: newInst.id, institute_code: payload.instCode, 
+            auth_user_id: authData.user.id, 
+            email: payload.adminEmail, 
+            full_name: payload.clientName || "Admin",
+            role: 'admin', 
+            institute_id: newInst.id, 
             status: 'Pending'
         }]).select('id').single();
         if (userErr) throw new Error("User DB Error: " + userErr.message);
