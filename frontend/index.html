@@ -1381,11 +1381,12 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
     <form id="nativeInstRegForm" onsubmit="handleInstRegSubmit(event)">
 
       <div class="grid-2" style="margin-bottom: 15px;">
-        <div class="form-group"><label class="label-text">Client Name <span class="req">*</span></label><input type="text" id="regClientName" class="form-input" required placeholder="e.g. John Doe" /></div>
+        <div class="form-group"><label class="label-text">Admin Name <span class="req">*</span></label><input type="text" id="regClientName" class="form-input" required placeholder="e.g. John Doe" /></div>
         <div class="form-group"><label class="label-text">Admin Email <span class="req">*</span></label><input type="email" id="regAdminEmail" class="form-input" required placeholder="admin@institute.com" /></div>
       </div>
-
+      <!-- ADD THIS NEW GRID ROW -->
       <div class="grid-2" style="margin-bottom: 15px;">
+        <div class="form-group"><label class="label-text">Admin Phone <span class="req">*</span></label><input type="text" id="regAdminPhone" class="form-input" required placeholder="e.g. 9876543210" /></div>
         <div class="form-group"><label class="label-text">Institute Name <span class="req">*</span></label><input type="text" id="regInstName" class="form-input" required placeholder="e.g. Apex Academy" /></div>
         <div class="form-group"><label class="label-text">Institute Code <span class="req">*</span></label><input type="text" id="regInstCode" class="form-input" required placeholder="e.g. APX01" style="text-transform: uppercase;" /></div>
       </div>

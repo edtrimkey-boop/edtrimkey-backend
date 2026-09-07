@@ -757,7 +757,7 @@ export default async function handler(req, res) {
         // 4. Create Teacher Profile (Fixes the missing profile bug for Admins)
         const { error: tpErr } = await supabaseAdmin.from('teacher_profiles').insert([{
             user_id: newUser.id,
-            assigned_class: null,
+            assigned_class: All,
             subject_handles: []
         }]);
         if (tpErr) throw new Error("Profile DB Error: " + tpErr.message);
