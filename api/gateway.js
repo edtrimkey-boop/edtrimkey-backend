@@ -249,15 +249,16 @@ export default async function handler(req, res) {
         let papersTotal = 0, papersLeft = 0, rcTotal = 0, rcLeft = 0, acTotal = 0, acLeft = 0, smsTotal = 0, smsRemaining = 0;
         let attEnabled = "NO", admEnabled = "NO", feeEnabled = "NO";
         let mainPlan = "Standard", mainStart = "N/A", mainRenew = "N/A", mainValue = null;
+        let mainPaymentStatus = "Pending"; // 🔥 FIXED: Declared at top level with a safe default
 
         if (activeSubs.length > 0) {
             const primarySub = activeSubs[0]; 
-           mainPlan = primarySub.plan_name || "Standard";
+            mainPlan = primarySub.plan_name || "Standard";
             mainStart = primarySub.start_date || "N/A";
             mainRenew = primarySub.renewal_date || "N/A";
             mainValue = primarySub.purchase_value;
-            let mainPaymentStatus = primarySub.payment_status || "Pending"; // ADD THIS
-
+            mainPaymentStatus = primarySub.payment_status || "Pending"; // 🔥 FIXED: Assigned globally
+            
             activeSubs.forEach(sub => {
                 if (sub.subscription_features) {
                     sub.subscription_features.forEach(feat => {
@@ -295,10 +296,19 @@ export default async function handler(req, res) {
             dynamicApps: generatedApps,
             instDetails: {
                 ...userData.institutes,
-                plan: mainPlan, startDate: mainStart, renewal: mainRenew, purchaseValue: mainValue,
-                paymentStatus: mainPaymentStatus, // ADD THIS TO THE PAYLOAD
-                papersTotal: papersTotal, papersLeft: papersLeft, rcTotal: rcTotal, rcLeft: rcLeft,
-                acTotal: acTotal, acLeft: acLeft, smsTotal: smsTotal, smsRemaining: smsRemaining
+                plan: mainPlan, 
+                startDate: mainStart, 
+                renewal: mainRenew, 
+                purchaseValue: mainValue,
+                paymentStatus: mainPaymentStatus, // 🔥 Now safely in scope
+                papersTotal: papersTotal, 
+                papersLeft: papersLeft, 
+                rcTotal: rcTotal, 
+                rcLeft: rcLeft,
+                acTotal: acTotal, 
+                acLeft: acLeft, 
+                smsTotal: smsTotal, 
+                smsRemaining: smsRemaining
             },
             upi: userData.operator_profiles?.[0]?.upi_id || userData.operator_profiles?.[0]?.upi || '',
             readNotifs: userContext.user_metadata?.read_notifs || [],

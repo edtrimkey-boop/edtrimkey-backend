@@ -4079,6 +4079,30 @@ function applyRoleUI(p) {
       showPopup("Welcome to Ed-Trim Key! Please set your private password to activate your account.", "info");
   }
 
+
+  if (userRole === "admin" || userRole === "all") {
+    if (p.instDetails && (p.instDetails.paymentStatus === 'Trial' || p.instDetails.paymentStatus === 'Pending')) {
+        let bannerHtml = `
+        <div style="background: linear-gradient(135deg, var(--accent), #D97706); color: #000; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);">
+            <div style="font-weight: 800; font-size: 13px;">⚠️ Account Activation Pending</div>
+            <div style="font-size: 12px; font-weight: 600;">Your institute is currently in Trial mode. Full access will be granted upon payment.</div>
+            <button onclick="switchTab('inst-billing');" style="background: #000; color: var(--accent); border: none; padding: 6px 16px; border-radius: 6px; font-weight: 900; cursor: pointer;">PAY NOW</button>
+        </div>`;
+        
+        let overviewView = document.getElementById('view-overview');
+        if (overviewView) {
+            // Remove existing banner if it exists, then insert at the top
+            let oldBanner = document.getElementById('billingBanner');
+            if (oldBanner) oldBanner.remove();
+            
+            let bannerDiv = document.createElement('div');
+            bannerDiv.id = 'billingBanner';
+            bannerDiv.innerHTML = bannerHtml;
+            overviewView.prepend(bannerDiv);
+        }
+    }
+  }
+  
   // Render the iOS Bottom Navigation based on role
     buildMobileNav(userRole);
 
@@ -4587,28 +4611,6 @@ function applyFilters() {
       }
     }
 
-
-    if (p.instDetails && (p.instDetails.paymentStatus === 'Trial' || p.instDetails.paymentStatus === 'Pending')) {
-        let bannerHtml = `
-        <div style="background: linear-gradient(135deg, var(--accent), #D97706); color: #000; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);">
-            <div style="font-weight: 800; font-size: 13px;">⚠️ Account Activation Pending</div>
-            <div style="font-size: 12px; font-weight: 600;">Your institute is currently in Trial mode. Full access will be granted upon payment.</div>
-            <button onclick="switchTab('inst-billing');" style="background: #000; color: var(--accent); border: none; padding: 6px 16px; border-radius: 6px; font-weight: 900; cursor: pointer;">PAY NOW</button>
-        </div>`;
-        
-        let overviewView = document.getElementById('view-overview');
-        if (overviewView) {
-            // Remove existing banner if it exists, then insert at the top
-            let oldBanner = document.getElementById('billingBanner');
-            if (oldBanner) oldBanner.remove();
-            
-            let bannerDiv = document.createElement('div');
-            bannerDiv.id = 'billingBanner';
-            bannerDiv.innerHTML = bannerHtml;
-            overviewView.prepend(bannerDiv);
-        }
-    }
-  
     // Supabase directly controls table-inst-teachers via loadTeachersDirectory()
     loadTeachersDirectory();
 
