@@ -777,11 +777,16 @@ export default async function handler(req, res) {
         }]);
         if (tpErr) throw new Error("Profile DB Error: " + tpErr.message);
 
-        // 5. Create Subscription with Dynamic Payment Status
+        // 5. Create Subscription with Valuated Quotas
         const pStatus = payload.paymentStatus === 'Trial' ? 'Trial' : (payload.paymentStatus === 'Pending' ? 'Pending' : 'Paid');
+        const netPayable = Number(payload.netPayable) || 0;
+        const discount = Number(payload.discount) || 0;
+
         const { data: initialSub, error: subErr } = await supabaseAdmin.from('subscriptions').insert([{
             institute_id: newInst.id, subscription_type: "Complete ERP", plan_name: payload.planType,
-            billing_cycle: "Yearly", status: "Active", payment_status: pStatus, start_date: new Date().toISOString(), purchase_value: payload.amountPaid || 0
+            billing_cycle: "Yearly", status: "Active", payment_status: pStatus, start_date: new Date().toISOString(), 
+            purchase_value: netPayable, 
+            discount: discount
         }]).select().single();
         if (subErr || !initialSub) throw new Error("Subscription Error: " + (subErr?.message || "Failed to generate subscription."));
 
@@ -795,21 +800,25 @@ export default async function handler(req, res) {
         ]);
         if (featErr) throw new Error("Features DB Error: " + featErr.message);
 
-        // 7. Log to Billing Ledger if Upfront Payment was made
-        if (pStatus === 'Paid' && payload.amountPaid > 0) {
-            const { error: ledgerErr } = await supabaseAdmin.from('billing_ledger').insert([{
-                ledger_ref: 'TXN-' + Date.now(),
-                institute_id: newInst.id,
-                user_id: newUser.id,
-                service_type: 'App Subscriptions',
-                transaction_type: 'SUBSCRIPTION_PURCHASE',
-                direction: 'CREDIT',
-                amount: payload.amountPaid,
-                status: 'POSTED',
-                payment_method: payload.paymentMethod || 'Cash',
-                description: `Initial setup payment for ${payload.planType} plan`
-            }]);
-            if (ledgerErr) console.error("Ledger Error:", ledgerErr.message);
+        // 7. Dynamic Ledger Routing (Trial vs Paid)
+        if (netPayable > 0) {
+            if (pStatus === 'Paid') {
+                // Client paid upfront. Log as cleared revenue.
+                await supabaseAdmin.from('billing_ledger').insert([{
+                    ledger_ref: 'TXN-' + Date.now(), institute_id: newInst.id, user_id: newUser.id,
+                    service_type: 'App Subscriptions', transaction_type: 'SUBSCRIPTION_PURCHASE', direction: 'CREDIT',
+                    amount: payload.amountPaid, status: 'POSTED', payment_method: payload.paymentMethod || 'Cash',
+                    description: `Initial setup payment for ${payload.planType} plan`
+                }]);
+            } else {
+                // Trial / Pay Later. Log as a pending invoice.
+                await supabaseAdmin.from('billing_ledger').insert([{
+                    ledger_ref: 'INV-' + Date.now(), institute_id: newInst.id, user_id: newUser.id,
+                    service_type: 'App Subscriptions', transaction_type: 'SUBSCRIPTION_CHARGE', direction: 'CREDIT',
+                    amount: netPayable, status: 'PENDING', payment_method: 'Pending',
+                    description: `Pending invoice for ${payload.planType} initial setup and quotas`
+                }]);
+            }
         }
 
         // 6. Push Automated "Pay Now" Notification

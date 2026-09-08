@@ -1465,8 +1465,18 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
         <div class="form-group"><label class="label-text">Payment Status <span class="req">*</span></label><select id="regPaymentStatus" class="form-input" required onchange="toggleRegPaymentAmount()"><option value="Trial">Trial / Pay Later</option><option value="Paid Online">Paid Online Upfront</option><option value="Paid Cash">Paid Cash Upfront</option></select></div>
       </div>
 
+      <!-- 🔥 NEW: INVOICE CALCULATOR GRID -->
+      <div style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px dashed var(--brand); margin-bottom: 15px;">
+          <p style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-bottom:10px;">Initial Billing & Quota Valuation</p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+              <div class="form-group" style="margin-bottom:0;"><label class="label-text" style="color:white;">Plan Value (₹) <span class="req">*</span></label><input type="number" id="regPlanValue" class="form-input" required placeholder="0" oninput="calcRegNet()" style="margin-bottom:0;" /></div>
+              <div class="form-group" style="margin-bottom:0;"><label class="label-text" style="color:var(--success);">Discount (₹)</label><input type="number" id="regDiscount" class="form-input" placeholder="0" oninput="calcRegNet()" style="margin-bottom:0;" /></div>
+              <div class="form-group" style="margin-bottom:0;"><label class="label-text" style="color:var(--brand);">Net Payable (₹)</label><input type="number" id="regNetPayable" class="form-input" disabled style="margin-bottom:0; font-weight:900; color:var(--brand); background:rgba(38,195,234,0.1); border-color:var(--brand);" placeholder="0" /></div>
+          </div>
+      </div>
+
       <div class="grid-2" style="margin-bottom: 15px;">
-        <div class="form-group"><label class="label-text">Amount Paid (₹)</label><input type="number" id="regAmountPaid" class="form-input" placeholder="0" disabled /></div>
+        <div class="form-group"><label class="label-text">Amount Received Now (₹)</label><input type="number" id="regAmountPaid" class="form-input" placeholder="0" disabled /></div>
         <div class="form-group"><label class="label-text">SMS Total <span class="req">*</span></label><input type="number" id="regSmsTotal" class="form-input" required placeholder="e.g. 10000" /></div>
       </div>
 
@@ -4219,10 +4229,22 @@ function applyRoleUI(p) {
 
 
   if (userRole === "admin" || userRole === "all") {
-    if (p.instDetails && (p.instDetails.paymentStatus === 'Trial' || p.instDetails.paymentStatus === 'Pending')) {
-        let amountToPay = Number(p.instDetails.purchaseValue) || 0;
-        let paymentStatus = p.instDetails.paymentStatus;
-        
+    let paymentStatus = p.instDetails ? p.instDetails.paymentStatus : 'Active';
+    let amountToPay = p.instDetails ? (Number(p.instDetails.purchaseValue) || 0) : 0;
+
+    // 🔥 THE FIX: Dynamically scan the billing ledger for real pending dues
+    if (globalPayload && globalPayload.data && globalPayload.data.myBilling) {
+        let ledgerPending = globalPayload.data.myBilling
+            .filter(b => String(b.status).toUpperCase() === 'PENDING')
+            .reduce((sum, b) => sum + Number(b.amount || 0), 0);
+            
+        if (ledgerPending > 0) {
+            amountToPay = ledgerPending;
+            paymentStatus = 'Pending'; // Force the banner to show the Pay Now state
+        }
+    }
+
+    if (paymentStatus === 'Trial' || paymentStatus === 'Pending') {
         let bannerHtml = '';
         
         if (paymentStatus === 'Pending' && amountToPay > 0) {
@@ -4231,7 +4253,7 @@ function applyRoleUI(p) {
             <div style="background: linear-gradient(135deg, var(--danger), #B91C1C); color: #fff; padding: 12px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);">
                 <div>
                     <div style="font-weight: 900; font-size: 14px;">⚠️ Action Required: Outstanding Balance</div>
-                    <div style="font-size: 12px; font-weight: 600; opacity: 0.9;">Your institute setup requires a payment of ₹${amountToPay} to activate full features.</div>
+                    <div style="font-size: 12px; font-weight: 600; opacity: 0.9;">You have pending invoice(s) totaling ₹${amountToPay}. Please clear your dues.</div>
                 </div>
                 <button onclick="triggerInitialPayment(${amountToPay})" style="background: #fff; color: var(--danger); border: none; padding: 8px 18px; border-radius: 6px; font-weight: 900; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">PAY ₹${amountToPay}</button>
             </div>`;
@@ -5697,9 +5719,12 @@ async function handleInstRegSubmit(e) {
       instCode: instCodeRaw,
       instName: document.getElementById('regInstName').value,
       planType: document.getElementById('regPlanType').value,
-      paymentStatus: document.getElementById('regPaymentStatus').value, // NEW
-      paymentMethod: document.getElementById('regPaymentStatus').value.replace('Paid ', ''), // NEW ('Online' or 'Cash')
-      amountPaid: document.getElementById('regAmountPaid').value || 0, // NEW
+      paymentStatus: document.getElementById('regPaymentStatus').value,
+      paymentMethod: document.getElementById('regPaymentStatus').value.replace('Paid ', ''),
+      planValue: document.getElementById('regPlanValue').value || 0, // NEW
+      discount: document.getElementById('regDiscount').value || 0, // NEW
+      netPayable: document.getElementById('regNetPayable').value || 0, // NEW
+      amountPaid: document.getElementById('regAmountPaid').value || 0,
       papersTotal: document.getElementById('regPapersTotal').value,
       questionsPerPaper: document.getElementById('regQuestionsPerPaper').value,
       clientName: document.getElementById('regClientName').value,
@@ -7857,6 +7882,32 @@ function requestAcademicChange() {
             })
             .catch(err => { closeModal('syncLoader'); showPopup(err.message, "error"); });
     });
+}
+
+function calcRegNet() {
+    let val = Number(document.getElementById('regPlanValue').value) || 0;
+    let disc = Number(document.getElementById('regDiscount').value) || 0;
+    let net = val - disc;
+    if (net < 0) net = 0;
+    document.getElementById('regNetPayable').value = net;
+    toggleRegPaymentAmount(); 
+}
+
+function toggleRegPaymentAmount() {
+    const status = document.getElementById('regPaymentStatus').value;
+    const amtInput = document.getElementById('regAmountPaid');
+    const netPayable = Number(document.getElementById('regNetPayable').value) || 0;
+
+    if (status.includes('Paid')) {
+        amtInput.disabled = false;
+        amtInput.required = true;
+        // Auto-fill the amount received with the Net Payable to save time
+        if (!amtInput.value || Number(amtInput.value) === 0) amtInput.value = netPayable;
+    } else {
+        amtInput.disabled = true;
+        amtInput.required = false;
+        amtInput.value = '0';
+    }
 }
 
 </script>
