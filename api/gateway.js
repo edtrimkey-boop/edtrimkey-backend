@@ -973,13 +973,26 @@ export default async function handler(req, res) {
       case "removeTeacherAccess": {
         const { data, error } = await supabaseAdmin.from('users')
             .update({ status: 'Inactive' })
-            .eq('email', payload.email)
-            .select(); // 🔥 FORCES DB TO RETURN THE UPDATED ROW
+            .eq('id', payload.userId) 
+            .select(); 
             
         if (error) throw new Error("DB Error: " + error.message);
-        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher with email " + payload.email);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher record.");
         
         result = { success: true, message: "Teacher access suspended." };
+        break;
+      }
+
+      case "restoreTeacherAccess": {
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Active' })
+            .eq('id', payload.userId) 
+            .select();
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher record.");
+        
+        result = { success: true, message: "Teacher access restored." };
         break;
       }
 

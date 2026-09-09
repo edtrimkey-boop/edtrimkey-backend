@@ -4982,6 +4982,7 @@ function openPayoutModal(opName, pendingAmt, upiId) {
   openModal('payoutModal');
 }
 
+// 1. The Action Function (Now strictly uses userId)
 function teacherAction(type, userId, btn) {
   if (type === 'delete') {
     askConfirm("Permanently delete this user from Master Access?", () => {
@@ -4991,7 +4992,7 @@ function teacherAction(type, userId, btn) {
             if (btn) resetBtnAnim(btn);
             if (res.success) {
                 showToast(res.message || "Teacher deleted successfully.", "success");
-                loadTeachersDirectory(); // 🔥 INSTANT UI REDRAW
+                loadTeachersDirectory(); // Instant Redraw
             } else showPopup(res.message || "Failed to delete teacher.", "error");
         })
         .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
@@ -4999,12 +5000,12 @@ function teacherAction(type, userId, btn) {
   } else {
     if (btn) triggerBtnAnim(btn); 
     const actionCall = type === 'remove' ? 'removeTeacherAccess' : 'restoreTeacherAccess';
-    serverCall(actionCall, { userId: userId }) // 🔥 Sends the UUID
+    serverCall(actionCall, { userId: userId }) 
       .then(res => {
           if (btn) resetBtnAnim(btn);
           if (res.success) {
               showToast(res.message || `Access ${type === 'remove' ? 'suspended' : 'restored'}.`, type === 'remove' ? "warning" : "success");
-              loadTeachersDirectory(); // 🔥 INSTANT UI REDRAW
+              loadTeachersDirectory(); // Instant Redraw
           } else showPopup(res.message, "error");
       })
       .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
@@ -7365,10 +7366,10 @@ async function syncInstituteBilling() {
 // Global cache for teachers
 let globalTeachersList = [];
 
+// 2. The Directory Loader (Passes t.id instead of t.email)
 function loadTeachersDirectory() {
     if (!globalUser || !globalUser.instId) return;
     
-    // 🔥 ROOT FIX: Use serverCall to completely bypass frontend RLS blocks
     serverCall('getTeachersList', { instId: globalUser.instId })
         .then(res => {
             let tbody = document.getElementById('table-inst-teachers');
@@ -7385,7 +7386,7 @@ function loadTeachersDirectory() {
                 
                 let actionHtml = "";
                 if (t.status === 'Active') {
-                    // 🔥 Pass t.id instead of t.email
+                    // 🔥 Passing t.id instead of t.email
                     actionHtml = `<button type="button" class="btn-sm btn-outline" style="color:var(--accent); border-color:var(--accent);" onclick="teacherAction('remove', '${t.id}', this)">Suspend Access</button>`;
                 } else {
                     actionHtml = `
@@ -7396,7 +7397,7 @@ function loadTeachersDirectory() {
                 }
                 
                 return `<tr>
-                    <td><b style="color:white; font-size:13px;">${t.full_name}</b><br><span style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">${t.email || '-'}</span></td>
+                    <td><b style="color:white; font-size:13px;">${t.full_name}</b><br><span style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">${t.email || 'NO EMAIL SAVED'}</span></td>
                     <td>${prof.subject_handles ? prof.subject_handles.join(', ') : '-'}</td>
                     <td>${t.phone_number || '-'}</td>
                     <td>${prof.assigned_class || '-'}</td>
@@ -7404,10 +7405,6 @@ function loadTeachersDirectory() {
                     <td>${actionHtml}</td>
                 </tr>`;
             }).join('');
-        })
-        .catch(err => {
-            let tbody = document.getElementById('table-inst-teachers');
-            if (tbody) tbody.innerHTML = `<tr><td colspan='6' style='text-align:center; color:var(--danger); padding:30px;'>Error loading teachers: ${err.message}</td></tr>`;
         });
 }
 
