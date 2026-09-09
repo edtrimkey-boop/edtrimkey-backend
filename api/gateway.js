@@ -1219,7 +1219,104 @@ export default async function handler(req, res) {
         result = { success: true, history: historyArr };
         break;
       }
+
+
+      case "removeOperatorAccess": {
+        // Sets status to Inactive (Suspends account without deleting financial data)
+        const { error } = await supabaseAdmin.from('users')
+            .update({ status: 'Inactive' })
+            .eq('full_name', payload.name)
+            .eq('role', 'operator');
+            
+        if (error) throw new Error("Database Error: " + error.message);
+        
+        result = { success: true, message: "Operator access suspended." };
+        break;
+      }
+
+      case "restoreOperatorAccess": {
+        // Sets status back to Active
+        const { error } = await supabaseAdmin.from('users')
+            .update({ status: 'Active' })
+            .eq('full_name', payload.name)
+            .eq('role', 'operator');
+            
+        if (error) throw new Error("Database Error: " + error.message);
+        
+        result = { success: true, message: "Operator access restored." };
+        break;
+      }
+
+      case "deleteOperatorAccess": {
+        // 1. Find the user ID and Auth ID based on the operator's name
+        const { data: uData, error: fetchErr } = await supabaseAdmin.from('users')
+            .select('id, auth_user_id')
+            .eq('full_name', payload.name)
+            .eq('role', 'operator')
+            .single();
+            
+        if (fetchErr || !uData) throw new Error("Operator not found in the database.");
+
+        // 2. Delete from operator_profiles first (Foreign Key constraint)
+        await supabaseAdmin.from('operator_profiles').delete().eq('user_id', uData.id);
+        
+        // 3. Delete from the public users table
+        const { error: delUserErr } = await supabaseAdmin.from('users').delete().eq('id', uData.id);
+        
+        // Built-in Database Protection: If they have formatted papers in the jobs_queue, 
+        // the database will block the deletion to protect your financial ledger.
+        if (delUserErr) throw new Error("Cannot delete operator. They have completed jobs in the system. Please suspend their access instead to preserve your audit logs.");
+
+        // 4. Delete their secure login identity from Supabase Auth
+        if (uData.auth_user_id) {
+            await supabaseAdmin.auth.admin.deleteUser(uData.auth_user_id);
+        }
+
+        result = { success: true, message: "Operator permanently deleted from the system." };
+        break;
+      }
       
+      
+      case "removeTeacherAccess": {
+        // Sets status to Inactive (Suspends account without deleting data)
+        const { error } = await supabaseAdmin.from('users').update({ status: 'Inactive' }).eq('email', payload.email);
+        if (error) throw new Error("Database Error: " + error.message);
+        
+        result = { success: true, message: "Teacher access suspended." };
+        break;
+      }
+
+      case "restoreTeacherAccess": {
+        // Sets status back to Active
+        const { error } = await supabaseAdmin.from('users').update({ status: 'Active' }).eq('email', payload.email);
+        if (error) throw new Error("Database Error: " + error.message);
+        
+        result = { success: true, message: "Teacher access restored." };
+        break;
+      }
+
+      case "deleteTeacherAccess": {
+        // 1. Find the user ID and Auth ID based on the email
+        const { data: uData, error: fetchErr } = await supabaseAdmin.from('users').select('id, auth_user_id').eq('email', payload.email).single();
+        if (fetchErr || !uData) throw new Error("Teacher not found in database.");
+
+        // 2. Delete from teacher_profiles first (Foreign Key constraint)
+        await supabaseAdmin.from('teacher_profiles').delete().eq('user_id', uData.id);
+        
+        // 3. Delete from the public users table
+        const { error: delUserErr } = await supabaseAdmin.from('users').delete().eq('id', uData.id);
+        if (delUserErr) throw new Error("Failed to delete user profile. They may be linked to existing academic records.");
+
+        // 4. Delete their secure login identity from Supabase Auth
+        if (uData.auth_user_id) {
+            await supabaseAdmin.auth.admin.deleteUser(uData.auth_user_id);
+        }
+
+        result = { success: true, message: "Teacher permanently deleted from the system." };
+        break;
+      }
+
+
       case "addJobTimelineEvent": {
         const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id, institute_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");

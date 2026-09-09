@@ -4985,22 +4985,40 @@ function openPayoutModal(opName, pendingAmt, upiId) {
 function teacherAction(type, email, btn) {
   if (type === 'delete') {
     askConfirm("Permanently delete this user from Master Access?", () => {
-      triggerBtnAnim(btn); openModal('syncLoader'); 
+      if (btn) triggerBtnAnim(btn); 
       serverCall('deleteTeacherAccess', { email: email })
-        .then(res => initDashboard(globalUser.email))
-        .catch(err => { hideLoader(); showPopup(err.message); });
+        .then(res => {
+            if (btn) resetBtnAnim(btn);
+            if (res.success) {
+                showToast(res.message || "Teacher deleted successfully.", "success");
+                initDashboard(globalUser.email, Memory.getToken(), null, true); // Silent background refresh
+            } else showPopup(res.message || "Failed to delete teacher.", "error");
+        })
+        .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
     });
   } else {
-    triggerBtnAnim(btn); openModal('syncLoader'); 
-    if(type === 'remove') { 
+    if (btn) triggerBtnAnim(btn); 
+    if (type === 'remove') { 
         serverCall('removeTeacherAccess', { email: email })
-          .then(res => initDashboard(globalUser.email))
-          .catch(err => { hideLoader(); showPopup(err.message); });
+          .then(res => {
+              if (btn) resetBtnAnim(btn);
+              if (res.success) {
+                  showToast(res.message || "Teacher access suspended.", "warning");
+                  initDashboard(globalUser.email, Memory.getToken(), null, true); // Silent background refresh
+              } else showPopup(res.message || "Failed to remove access.", "error");
+          })
+          .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
     } 
     else if (type === 'restore') { 
         serverCall('restoreTeacherAccess', { email: email })
-          .then(res => initDashboard(globalUser.email))
-          .catch(err => { hideLoader(); showPopup(err.message); });
+          .then(res => {
+              if (btn) resetBtnAnim(btn);
+              if (res.success) {
+                  showToast(res.message || "Teacher access restored.", "success");
+                  initDashboard(globalUser.email, Memory.getToken(), null, true); // Silent background refresh
+              } else showPopup(res.message || "Failed to restore access.", "error");
+          })
+          .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
     } 
   }
 }
@@ -5008,24 +5026,40 @@ function teacherAction(type, email, btn) {
 function operatorAction(type, name, btn) {
   if (type === 'delete') {
     askConfirm("Permanently delete this operator from the system?", () => {
-      if(btn) triggerBtnAnim(btn); 
-      openModal('syncLoader'); 
+      if (btn) triggerBtnAnim(btn); 
       serverCall('deleteOperatorAccess', { name: name })
-        .then(res => initDashboard(globalUser.email))
-        .catch(err => { hideLoader(); showPopup(err.message); });
+        .then(res => {
+            if (btn) resetBtnAnim(btn);
+            if (res.success) {
+                showToast(res.message || "Operator deleted successfully.", "success");
+                initDashboard(globalUser.email, Memory.getToken(), null, true);
+            } else showPopup(res.message || "Failed to delete operator.", "error");
+        })
+        .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
     });
   } else {
-    if(btn) triggerBtnAnim(btn); 
-    openModal('syncLoader'); 
-    if(type === 'remove') { 
+    if (btn) triggerBtnAnim(btn); 
+    if (type === 'remove') { 
         serverCall('removeOperatorAccess', { name: name })
-          .then(res => initDashboard(globalUser.email))
-          .catch(err => { hideLoader(); showPopup(err.message); });
+          .then(res => {
+              if (btn) resetBtnAnim(btn);
+              if (res.success) {
+                  showToast(res.message || "Operator access suspended.", "warning");
+                  initDashboard(globalUser.email, Memory.getToken(), null, true);
+              } else showPopup(res.message || "Failed to suspend operator.", "error");
+          })
+          .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
     } 
     else if (type === 'restore') { 
         serverCall('restoreOperatorAccess', { name: name })
-          .then(res => initDashboard(globalUser.email))
-          .catch(err => { hideLoader(); showPopup(err.message); });
+          .then(res => {
+              if (btn) resetBtnAnim(btn);
+              if (res.success) {
+                  showToast(res.message || "Operator access restored.", "success");
+                  initDashboard(globalUser.email, Memory.getToken(), null, true);
+              } else showPopup(res.message || "Failed to restore operator.", "error");
+          })
+          .catch(err => { if (btn) resetBtnAnim(btn); showPopup(err.message, "error"); });
     } 
   }
 }
