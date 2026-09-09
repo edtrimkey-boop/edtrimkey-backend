@@ -1144,6 +1144,19 @@ export default async function handler(req, res) {
         result = { success: true, message: "UPI ID saved securely." };
         break;
       }
+
+      case "getTeachersList": {
+        // Uses supabaseAdmin to safely bypass Row Level Security
+        const { data, error } = await supabaseAdmin.from('users')
+            .select('*, teacher_profiles(*)')
+            .eq('institute_id', payload.instId)
+            .eq('role', 'teacher');
+            
+        if (error) throw new Error("Database Error: " + error.message);
+        
+        result = { success: true, teachers: data };
+        break;
+      }
         
 
 

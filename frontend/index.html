@@ -7387,52 +7387,49 @@ async function syncInstituteBilling() {
 // Global cache for teachers
 let globalTeachersList = [];
 
-async function loadTeachersDirectory() {
-    // 1. Resolve Institute ID safely
-    const instId = globalUser?.institute_id || globalUser?.instId;
-    if (!instId) {
-        console.warn("Cannot load teachers: No institute_id found on globalUser", globalUser);
-        return;
-    }
-
-    const tbody = document.getElementById('table-inst-teachers');
-    if (!tbody) return;
-
-    try {
-        console.log("Fetching teachers for institute_id:", instId);
-
-        // Query users with role 'teacher' for this institute, joined with teacher_profiles
-        const { data, error } = await window.supabaseInstance
-            .from('users')
-            .select(`
-                id,
-                email,
-                full_name,
-                phone_number,
-                status,
-                teacher_profiles (
-                    assigned_class,
-                    subject_handles
-                )
-            `)
-            .eq('institute_id', instId)
-            .ilike('role', 'teacher')
-            .order('full_name', { ascending: true });
-
-        if (error) {
-            console.error("Supabase Error fetching teachers:", error);
-            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--danger); font-weight:600;">Error: ${error.message}</td></tr>`;
-            return;
-        }
-
-        console.log("Teachers retrieved from Supabase:", data);
-        globalTeachersList = data || [];
-        renderTeachersTable(globalTeachersList);
-
-    } catch (err) {
-        console.error("Crash in loadTeachersDirectory:", err);
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--danger); font-weight:600;">Failed to connect to database.</td></tr>`;
-    }
+function loadTeachersDirectory() {
+    if (!globalUser || !globalUser.instId) return;
+    
+    // 🔥 ROOT FIX: Use serverCall to completely bypass frontend RLS blocks
+    serverCall('getTeachersList', { instId: globalUser.instId })
+        .then(res => {
+            let tbody = document.getElementById('table-inst-teachers');
+            if (!tbody) return;
+            
+            if (!res.success || !res.teachers || res.teachers.length === 0) {
+                tbody.innerHTML = "<tr><td colspan='6' style='text-align:center; color:var(--text-muted); padding:30px; font-weight:600;'>No teachers found in directory.</td></tr>";
+                return;
+            }
+            
+            tbody.innerHTML = res.teachers.map(t => {
+                let prof = t.teacher_profiles && t.teacher_profiles.length > 0 ? t.teacher_profiles[0] : {};
+                let badgeClass = t.status === 'Active' ? 'bg-success' : 'bg-danger';
+                
+                let actionHtml = "";
+                if (t.status === 'Active') {
+                    actionHtml = `<button type="button" class="btn-sm btn-outline" style="color:var(--accent); border-color:var(--accent);" onclick="teacherAction('remove', '${t.email}', this)">Suspend Access</button>`;
+                } else {
+                    actionHtml = `
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" class="btn-sm btn-success" onclick="teacherAction('restore', '${t.email}', this)">Restore</button>
+                        <button type="button" class="btn-sm btn-outline" style="color:var(--danger); border-color:var(--danger);" onclick="teacherAction('delete', '${t.email}', this)">Delete</button>
+                    </div>`;
+                }
+                
+                return `<tr>
+                    <td><b style="color:white; font-size:13px;">${t.full_name}</b><br><span style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">${t.email}</span></td>
+                    <td>${prof.subject_handles ? prof.subject_handles.join(', ') : '-'}</td>
+                    <td>${t.phone_number || '-'}</td>
+                    <td>${prof.assigned_class || '-'}</td>
+                    <td><span class="badge ${badgeClass}">${t.status || 'Active'}</span></td>
+                    <td>${actionHtml}</td>
+                </tr>`;
+            }).join('');
+        })
+        .catch(err => {
+            let tbody = document.getElementById('table-inst-teachers');
+            if (tbody) tbody.innerHTML = `<tr><td colspan='6' style='text-align:center; color:var(--danger); padding:30px;'>Error loading teachers: ${err.message}</td></tr>`;
+        });
 }
 
 function renderTeachersTable(teachers) {
