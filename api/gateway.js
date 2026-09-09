@@ -1236,23 +1236,52 @@ export default async function handler(req, res) {
       }
 
       case "requestAcademicChange": {
-        const { data: senderObj } = await supabase.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
+        const { data: senderObj } = await supabaseAdmin.from('users').select('id, institute_id').eq('auth_user_id', userContext.id).single();
         if (!senderObj) throw new Error("User mapping failed.");
 
         // Dispatch a request notification to Admins
-        await supabase.from('notifications').insert([{
+        await supabaseAdmin.from('notifications').insert([{
             sender_id: senderObj.id,
             institute_id: senderObj.institute_id,
-            title: "Academic Profile Change Request",
-            message: `${payload.userName} has requested an update to their Assigned Class / Subjects. Please review their profile in the Directory.`,
+            title: "Profile Change Request",
+            message: `${payload.userName} requested an update to their Academic/Work Profile. Click here to review and edit their settings.`,
             type: "system_alert",
             status: "sent",
-            reference_id: "PROFILE-REQUEST",
+            reference_id: "REQ_EDIT_" + senderObj.id, // 🔥 THE FIX: Attaches their UUID so the frontend can open the modal!
             target_roles: ['admin', 'super admin'],
             target_users: []
         }]);
         
         result = { success: true };
+        break;
+      }
+
+      case "getUserDetailsForEdit": {
+        // 🔥 NEW: Safely fetches a specific user's full profile to populate the Edit Modal
+        const { data, error } = await supabaseAdmin.from('users')
+            .select('*, teacher_profiles(*), operator_profiles(*)')
+            .eq('id', payload.targetId)
+            .single();
+            
+        if (error) throw new Error("Could not fetch user profile: " + error.message);
+        result = { success: true, data: data };
+        break;
+      }
+
+      case "updateTeacherDetails": {
+        // 🔥 NEW: Applies the Admin's edits to the teacher
+        const { error: userErr } = await supabaseAdmin.from('users')
+            .update({ status: payload.status })
+            .eq('id', payload.userId);
+        if (userErr) throw new Error("Status Update Error: " + userErr.message);
+
+        const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()).filter(Boolean) : [];
+        const { error: profErr } = await supabaseAdmin.from('teacher_profiles')
+            .update({ assigned_class: payload.assignedClass, subject_handles: subjectsArr })
+            .eq('user_id', payload.userId);
+        if (profErr) throw new Error("Profile Update Error: " + profErr.message);
+
+        result = { success: true, message: "Teacher details updated successfully." };
         break;
       }
 
