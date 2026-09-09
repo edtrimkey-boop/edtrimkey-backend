@@ -6114,6 +6114,14 @@ function handleOpEditSubmit(e) {
       } else {
           closeModal('operatorEditModal');
           initDashboard(globalUser.email, Memory.getToken(), "Operator Settings Updated.");
+          
+          // 🔥 TRIGGER PUSH NOTIFICATION TO THE OPERATOR
+          serverCall('sendNotification', { 
+              senderEmail: globalUser.email, 
+              targetRaw: 'all_operators', 
+              title: "Profile Approved ⚙️", 
+              msg: `${document.getElementById('editOpNameOriginal').value}, your work profile and rates have been updated.` 
+          });
       }
     })
     .catch(function(err) {
@@ -7941,13 +7949,24 @@ function submitUserProfileEdit(e) {
 
 function requestAcademicChange() {
     askConfirm("Send a request to your administrator to update your Class and Subject handles?", () => {
-        openModal('syncLoader');
+        showLoader("SENDING REQUEST...");
         serverCall('requestAcademicChange', { userName: globalUser.name })
             .then(res => {
-                closeModal('syncLoader');
-                if(res.success) showPopup("Request sent to administration.", "success");
+                hideLoader();
+                if(res.success) {
+                    showToast("Request sent to administration.", "success");
+                    closeModal('userProfileModal');
+                    
+                    // 🔥 TRIGGER PUSH NOTIFICATION TO ADMINS
+                    serverCall('sendNotification', { 
+                        senderEmail: globalUser.email, 
+                        targetRaw: (globalUser.role === 'operator' ? 'global' : 'all_admins'), 
+                        title: "Profile Change Request 🔔", 
+                        msg: `${globalUser.name} requested an update to their Profile. Tap to review.` 
+                    });
+                }
             })
-            .catch(err => { closeModal('syncLoader'); showPopup(err.message, "error"); });
+            .catch(err => { hideLoader(); showPopup(err.message, "error"); });
     });
 }
 
@@ -8025,6 +8044,14 @@ function handleTeacherEditSubmit(e) {
                 closeModal('teacherEditModal');
                 showToast("Teacher Settings Updated.", "success");
                 loadTeachersDirectory(); // INSTANT REDRAW
+                
+                // 🔥 TRIGGER PUSH NOTIFICATION TO THE TEACHER
+                serverCall('sendNotification', { 
+                    senderEmail: globalUser.email, 
+                    targetRaw: 'global', // Safe fallback, internal routing via user UUID is best
+                    title: "Profile Approved ✅", 
+                    msg: `Your academic profile updates have been approved and applied.` 
+                });
             }
         })
         .catch(function(err) {

@@ -897,17 +897,6 @@ export default async function handler(req, res) {
         break;
       }
 
-      case "updateOperatorDetails":
-        const { data: opUser } = await supabase.from('users').select('id').eq('full_name', payload.originalName).single();
-        if(opUser) {
-           await Promise.all([
-             supabase.from('users').update({ status: payload.status }).eq('id', opUser.id),
-             supabase.from('operator_profiles').update({ subjects: payload.subjects, work_type: payload.workType, rate_paper: payload.ratePaper, rate_unit: payload.rateUnit }).eq('user_id', opUser.id)
-           ]);
-        }
-        result = { success: true };
-        break;
-
       case "assignJobToOperator": {
         const { data: opToAssign } = await supabase.from('users').select('id').eq('full_name', payload.operatorName).single();
         if(opToAssign) {
@@ -1269,7 +1258,6 @@ export default async function handler(req, res) {
       }
 
       case "updateTeacherDetails": {
-        // 🔥 NEW: Applies the Admin's edits to the teacher
         const { error: userErr } = await supabaseAdmin.from('users')
             .update({ status: payload.status })
             .eq('id', payload.userId);
@@ -1281,7 +1269,58 @@ export default async function handler(req, res) {
             .eq('user_id', payload.userId);
         if (profErr) throw new Error("Profile Update Error: " + profErr.message);
 
+        // 🔥 NEW: IN-APP NOTIFICATION TO THE TEACHER (ACCEPTED)
+        await supabaseAdmin.from('notifications').insert([{
+            sender_id: null, 
+            institute_id: null,
+            title: "Profile Update Approved ✅",
+            message: "Your request to update your academic profile has been approved and applied by the administration.",
+            type: "system_alert",
+            status: "sent",
+            reference_id: "SYS-ALERT",
+            target_roles: [],
+            target_users: [payload.userId] // Sends strictly to this teacher
+        }]);
+
         result = { success: true, message: "Teacher details updated successfully." };
+        break;
+      }
+
+      case "updateOperatorDetails": {
+        const { data: opData } = await supabaseAdmin.from('users').select('id').eq('full_name', payload.originalName).eq('role', 'operator').single();
+        
+        const { error: userErr } = await supabaseAdmin.from('users')
+            .update({ status: payload.status })
+            .eq('full_name', payload.originalName)
+            .eq('role', 'operator');
+        if (userErr) throw new Error("Status Update Error: " + userErr.message);
+
+        if (opData) {
+            const subjectsArr = payload.subjects ? payload.subjects.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const workArr = payload.workType ? payload.workType.split(',').map(s => s.trim()).filter(Boolean) : [];
+            
+            await supabaseAdmin.from('operator_profiles').update({
+                subject_handles: subjectsArr,
+                work_types: workArr,
+                rate_paper: payload.ratePaper,
+                rate_unit: payload.rateUnit
+            }).eq('user_id', opData.id);
+
+            // 🔥 NEW: IN-APP NOTIFICATION TO THE OPERATOR (ACCEPTED)
+            await supabaseAdmin.from('notifications').insert([{
+                sender_id: null, 
+                institute_id: null,
+                title: "Work Profile Updated ⚙️",
+                message: "Your work types, subjects, or rates have been officially updated by the Super Admin.",
+                type: "system_alert",
+                status: "sent",
+                reference_id: "SYS-ALERT",
+                target_roles: [],
+                target_users: [opData.id] // Sends strictly to this operator
+            }]);
+        }
+
+        result = { success: true, message: "Operator details updated successfully." };
         break;
       }
 
