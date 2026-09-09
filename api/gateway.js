@@ -1333,36 +1333,44 @@ export default async function handler(req, res) {
       
       
       case "removeTeacherAccess": {
-        // Sets status to Inactive (Suspends account without deleting data)
-        const { error } = await supabaseAdmin.from('users').update({ status: 'Inactive' }).eq('email', payload.email);
-        if (error) throw new Error("Database Error: " + error.message);
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Inactive' })
+            .eq('id', payload.userId) // 🔥 Targeting by primary UUID
+            .select(); 
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher record.");
         
         result = { success: true, message: "Teacher access suspended." };
         break;
       }
 
       case "restoreTeacherAccess": {
-        // Sets status back to Active
-        const { error } = await supabaseAdmin.from('users').update({ status: 'Active' }).eq('email', payload.email);
-        if (error) throw new Error("Database Error: " + error.message);
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Active' })
+            .eq('id', payload.userId) // 🔥 Targeting by primary UUID
+            .select();
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher record.");
         
         result = { success: true, message: "Teacher access restored." };
         break;
       }
 
       case "deleteTeacherAccess": {
-        // 1. Find the user ID and Auth ID based on the email
-        const { data: uData, error: fetchErr } = await supabaseAdmin.from('users').select('id, auth_user_id').eq('email', payload.email).single();
+        // Find the user ID and Auth ID based on the UUID
+        const { data: uData, error: fetchErr } = await supabaseAdmin.from('users').select('id, auth_user_id').eq('id', payload.userId).single();
         if (fetchErr || !uData) throw new Error("Teacher not found in database.");
 
-        // 2. Delete from teacher_profiles first (Foreign Key constraint)
+        // Delete from teacher_profiles first (Foreign Key constraint)
         await supabaseAdmin.from('teacher_profiles').delete().eq('user_id', uData.id);
         
-        // 3. Delete from the public users table
+        // Delete from the public users table
         const { error: delUserErr } = await supabaseAdmin.from('users').delete().eq('id', uData.id);
         if (delUserErr) throw new Error("Failed to delete user profile. They may be linked to existing academic records.");
 
-        // 4. Delete their secure login identity from Supabase Auth
+        // Delete their secure login identity from Supabase Auth
         if (uData.auth_user_id) {
             await supabaseAdmin.auth.admin.deleteUser(uData.auth_user_id);
         }

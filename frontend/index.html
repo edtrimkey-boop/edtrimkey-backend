@@ -4982,11 +4982,11 @@ function openPayoutModal(opName, pendingAmt, upiId) {
   openModal('payoutModal');
 }
 
-function teacherAction(type, email, btn) {
+function teacherAction(type, userId, btn) {
   if (type === 'delete') {
     askConfirm("Permanently delete this user from Master Access?", () => {
       if (btn) triggerBtnAnim(btn); 
-      serverCall('deleteTeacherAccess', { email: email })
+      serverCall('deleteTeacherAccess', { userId: userId })
         .then(res => {
             if (btn) resetBtnAnim(btn);
             if (res.success) {
@@ -4999,7 +4999,7 @@ function teacherAction(type, email, btn) {
   } else {
     if (btn) triggerBtnAnim(btn); 
     const actionCall = type === 'remove' ? 'removeTeacherAccess' : 'restoreTeacherAccess';
-    serverCall(actionCall, { email: email })
+    serverCall(actionCall, { userId: userId }) // 🔥 Sends the UUID
       .then(res => {
           if (btn) resetBtnAnim(btn);
           if (res.success) {
@@ -7385,17 +7385,18 @@ function loadTeachersDirectory() {
                 
                 let actionHtml = "";
                 if (t.status === 'Active') {
-                    actionHtml = `<button type="button" class="btn-sm btn-outline" style="color:var(--accent); border-color:var(--accent);" onclick="teacherAction('remove', '${t.email}', this)">Suspend Access</button>`;
+                    // 🔥 Pass t.id instead of t.email
+                    actionHtml = `<button type="button" class="btn-sm btn-outline" style="color:var(--accent); border-color:var(--accent);" onclick="teacherAction('remove', '${t.id}', this)">Suspend Access</button>`;
                 } else {
                     actionHtml = `
                     <div style="display:flex; gap:8px;">
-                        <button type="button" class="btn-sm btn-success" onclick="teacherAction('restore', '${t.email}', this)">Restore</button>
-                        <button type="button" class="btn-sm btn-outline" style="color:var(--danger); border-color:var(--danger);" onclick="teacherAction('delete', '${t.email}', this)">Delete</button>
+                        <button type="button" class="btn-sm btn-success" onclick="teacherAction('restore', '${t.id}', this)">Restore</button>
+                        <button type="button" class="btn-sm btn-outline" style="color:var(--danger); border-color:var(--danger);" onclick="teacherAction('delete', '${t.id}', this)">Delete</button>
                     </div>`;
                 }
                 
                 return `<tr>
-                    <td><b style="color:white; font-size:13px;">${t.full_name}</b><br><span style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">${t.email}</span></td>
+                    <td><b style="color:white; font-size:13px;">${t.full_name}</b><br><span style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">${t.email || '-'}</span></td>
                     <td>${prof.subject_handles ? prof.subject_handles.join(', ') : '-'}</td>
                     <td>${t.phone_number || '-'}</td>
                     <td>${prof.assigned_class || '-'}</td>
