@@ -1339,7 +1339,7 @@ export default async function handler(req, res) {
             .select(); 
             
         if (error) throw new Error("DB Error: " + error.message);
-        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher record.");
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher record."); // 🔥 "with email" is gone!
         
         result = { success: true, message: "Teacher access suspended." };
         break;
