@@ -970,17 +970,59 @@ export default async function handler(req, res) {
         result = { success: true };
         break;
 
-      case "removeOperatorAccess":
-      case "removeTeacherAccess":
-        await supabase.from('users').update({ status: 'Inactive' }).eq(payload.name ? 'full_name' : 'email', payload.name || payload.email);
-        result = { success: true };
+      case "removeTeacherAccess": {
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Inactive' })
+            .eq('email', payload.email)
+            .select(); // 🔥 FORCES DB TO RETURN THE UPDATED ROW
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher with email " + payload.email);
+        
+        result = { success: true, message: "Teacher access suspended." };
         break;
+      }
 
-      case "restoreOperatorAccess":
-      case "restoreTeacherAccess":
-        await supabase.from('users').update({ status: 'Active' }).eq(payload.name ? 'full_name' : 'email', payload.name || payload.email);
-        result = { success: true };
+      case "restoreTeacherAccess": {
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Active' })
+            .eq('email', payload.email)
+            .select();
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find teacher with email " + payload.email);
+        
+        result = { success: true, message: "Teacher access restored." };
         break;
+      }
+
+      case "removeOperatorAccess": {
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Inactive' })
+            .eq('full_name', payload.name)
+            .eq('role', 'operator')
+            .select();
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find operator named " + payload.name);
+        
+        result = { success: true, message: "Operator access suspended." };
+        break;
+      }
+
+      case "restoreOperatorAccess": {
+        const { data, error } = await supabaseAdmin.from('users')
+            .update({ status: 'Active' })
+            .eq('full_name', payload.name)
+            .eq('role', 'operator')
+            .select();
+            
+        if (error) throw new Error("DB Error: " + error.message);
+        if (!data || data.length === 0) throw new Error("Update Failed: Could not find operator named " + payload.name);
+        
+        result = { success: true, message: "Operator access restored." };
+        break;
+      }
 
       case "createPaymentLink":
         result = { success: true, refId: `TXN-${Date.now()}`, amount: payload.amount };
