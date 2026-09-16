@@ -1904,7 +1904,8 @@ h1, h2, h3, .premium-sticky-header h2, .panel h2, .glass-title-pill h3 {
 <div id="syncLoader" class="glass-overlay">
   <div style="text-align:center;">
     <div class="brandRow" style="margin-bottom: 20px; justify-content: center;">
-      <img class="logo" style="width:65px; height:65px; border-radius: 16px;" src="https://ypmnsgpohaaavbjdqjye.supabase.co/storage/v1/object/public/logo/Ed-Trim%20Kry%20Logo.png">
+      <!-- 🔥 Added id="syncLoaderLogo" and object-fit styling -->
+      <img id="syncLoaderLogo" class="logo" style="width:65px; height:65px; border-radius: 16px; object-fit: contain; background: white; padding: 2px;" src="https://ypmnsgpohaaavbjdqjye.supabase.co/storage/v1/object/public/logo/Ed-Trim%20Kry%20Logo.png">
     </div>
     <h3 id="syncText" style="color:white; letter-spacing:3px; font-size:14px; margin-bottom:0; font-weight: 800;">SYNCING DATABASE...</h3>
     <div class="loading-bar-container"><div class="loading-bar"></div></div>
@@ -3337,6 +3338,12 @@ function showLoader(txt) {
 
     const textElem = document.getElementById('syncText');
     if (textElem) textElem.innerText = txt || "SYNCING DATABASE..."; 
+    
+    // 🔥 INSTANT LOGO INJECTION FROM MEMORY
+    const syncImg = document.getElementById('syncLoaderLogo');
+    const savedLogo = localStorage.getItem('tk_saved_inst_logo');
+    if (syncImg && savedLogo) syncImg.src = savedLogo;
+
     openModal('syncLoader');
 }
 
@@ -4163,6 +4170,11 @@ function applyRoleUI(p) {
     } else if (globalPayload && globalPayload.data && globalPayload.data.instituteLogo && String(globalPayload.data.instituteLogo).trim() !== "") {
         finalLogoUrl = globalPayload.data.instituteLogo; isDefaultLogo = false;
     }
+    
+    // 🔥 NEW: Cache the logo in memory so the loader has it instantly next time!
+    localStorage.setItem('tk_saved_inst_logo', finalLogoUrl);
+    let syncImg = document.getElementById('syncLoaderLogo');
+    if (syncImg) syncImg.src = finalLogoUrl;
     
     if(logoEl) {
         logoEl.src = finalLogoUrl; 
