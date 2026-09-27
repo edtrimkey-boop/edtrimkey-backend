@@ -100,6 +100,204 @@ async function dispatchSystemEmail(toEmail, subject, htmlContent) {
     }
 }
 
+// ============================================================================
+// ✉️ UNIVERSAL EMAIL ENGINE (RESEND) & TEMPLATE BUILDER
+// ============================================================================
+
+async function dispatchSystemEmail(toEmail, subject, htmlContent) {
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    if (!RESEND_API_KEY) return console.warn("Email bypassed: No Resend API Key.");
+
+    try {
+        await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                from: 'Ed-Trim Key Alerts <alerts@ed.trimkey.in>',
+                reply_to: 'hello@ed.trimkey.in',
+                to: [toEmail],
+                subject: subject,
+                html: htmlContent
+            })
+        });
+    } catch (error) { console.error("Resend API Error:", error); }
+}
+
+// 🏗️ THE MASTER LAYOUT: Wraps your unique content in your premium dark-mode design
+function buildTkEmail(preheader, logoUrl, innerContent) {
+    const defaultLogo = "https://ypmnsgpohaaavbjdqjye.supabase.co/storage/v1/object/public/logo/new-ETK.png";
+    const finalLogo = logoUrl || defaultLogo;
+
+    return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            @keyframes smoothBlink { 0% { opacity: 1; box-shadow: 0 0 0 rgba(38, 195, 234, 0); } 50% { opacity: 0.6; box-shadow: 0 0 12px rgba(38, 195, 234, 0.4); } 100% { opacity: 1; box-shadow: 0 0 0 rgba(38, 195, 234, 0); } }
+            .animated-password { animation: smoothBlink 2.5s ease-in-out infinite; }
+        </style>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #0B111E; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <div style="display: none; max-height: 0px; overflow: hidden; font-size: 0px; mso-hide: all;">${preheader}</div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0B111E; padding: 60px 20px;">
+            <tr><td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 520px; background-color: #141E30; border: 1px solid rgba(255, 255, 255, 0.08); border-top: 4px solid #26C3EA; border-radius: 12px;">
+                    <tr>
+                        <td style="padding: 40px; background: linear-gradient(145deg, #1A2639, #141E30); border-bottom: 1px solid rgba(255, 255, 255, 0.05); text-align: center;">
+                            <img src="${finalLogo}" style="width: 56px; height: 56px; border-radius: 14px; border: 1px solid rgba(38, 195, 234, 0.25); margin-bottom: 16px; background-color: #ffffff; object-fit: contain;">
+                            <h1 style="color: #26C3EA; margin: 0 0 6px 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px;">Ed Trim Key</h1>
+                            <p style="color: #FFFFFF; margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase;">Academic digital workflow</p>
+                        </td>
+                    </tr>
+                    ${innerContent}
+                </table>
+                <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 520px; margin: 0 auto;">
+                    <tr>
+                        <td style="padding: 40px 40px 20px 40px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05);">
+                            <h4 style="color: #94A3B8; font-size: 14px; font-weight: 600; margin: 0 0 8px 0;">Ed-Trim Key Systems</h4>
+                            <p style="color: #64748B; font-size: 13px; margin: 0;">Lok Vihar Colony, Lalpur<br>Ranchi, Jharkhand, India<br>
+                            <a href="mailto:support@ed.trimkey.in" style="color: #26C3EA; text-decoration: none;">support@ed.trimkey.in</a></p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 24px 40px 32px 40px; text-align: center;">
+                            <p style="color: #475569; font-size: 12px; margin: 0;">&copy; ${new Date().getFullYear()} Ed-Trim Key Systems. All rights reserved.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td></tr>
+        </table>
+    </body>
+    </html>`;
+}
+
+// 📦 THE TEMPLATE ROUTER: Injects your dynamic data into the correct HTML blocks
+const EmailTemplates = {
+    // 1. Institute Admin Welcome
+    adminWelcome: (data) => buildTkEmail(
+        `Your requested Institute Admin access for ${data.instName} has been successfully provisioned.`,
+        data.logoUrl,
+        `<tr><td style="padding: 35px 40px 10px 40px;">
+            <h2 style="color: #F1F5F9; margin: 0 0 15px 0; font-size: 20px;">Welcome to your workspace,</h2>
+            <p style="color: #94A3B8; font-size: 15px; line-height: 24px;">Hello ${data.name},<br><br>Your environment has been successfully deployed. You have been securely provisioned with the following access parameters:</p>
+            <table width="100%" style="background: rgba(38, 195, 234, 0.04); border-left: 3px solid #26C3EA; border-radius: 4px; padding: 18px; margin-bottom: 28px;">
+                <tr><td style="padding-bottom: 10px;"><span style="color: #64748B; font-size: 12px; text-transform: uppercase; font-weight: 600;">Organization</span><br><strong style="color: #F1F5F9; font-size: 16px;">${data.instName}</strong></td></tr>
+                <tr><td><span style="color: #64748B; font-size: 12px; text-transform: uppercase; font-weight: 600;">Assigned Role</span><br><strong style="color: #F1F5F9; font-size: 16px;">Institute Admin</strong></td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="padding: 0 40px 35px 40px;">
+            <table width="100%" style="background-color: #0B111E; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);">
+                <tr><td style="padding: 24px;">
+                    <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase;">User ID</p>
+                    <p style="margin: 0 0 20px 0; font-size: 16px; color: #F1F5F9;">${data.email}</p>
+                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase;">Temporary Password</p>
+                    <span class="animated-password" style="background-color: rgba(38, 195, 234, 0.08); border: 1px solid rgba(38, 195, 234, 0.3); color: #26C3EA; padding: 10px 14px; border-radius: 6px; font-family: monospace; font-size: 16px;">${data.password}</span>
+                </td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="padding: 0 40px 40px 40px; text-align: center;"><a href="https://ed.trimkey.in" style="background: linear-gradient(135deg, #26C3EA, #1A9CBF); color: #0B111E; text-decoration: none; padding: 14px 36px; border-radius: 24px; font-weight: 700; font-size: 14px; display: inline-block;">Access Dashboard</a></td></tr>`
+    ),
+
+    // 2. System Operator Welcome
+    operatorWelcome: (data) => buildTkEmail(
+        `Your System Operator access for the Ed-Trim Key Network has been successfully provisioned.`,
+        "https://ypmnsgpohaaavbjdqjye.supabase.co/storage/v1/object/public/logo/EKT_GIF.gif",
+        `<tr><td style="padding: 35px 40px 10px 40px;">
+            <h2 style="color: #F1F5F9; margin: 0 0 15px 0; font-size: 20px;">Welcome to the command center,</h2>
+            <p style="color: #94A3B8; font-size: 15px; line-height: 24px;">Hello ${data.name},<br><br>You have been officially authorized to join the platform operations infrastructure. Your environment has been successfully deployed:</p>
+            <table width="100%" style="background: rgba(38, 195, 234, 0.04); border-left: 3px solid #26C3EA; border-radius: 4px; padding: 18px; margin-bottom: 28px;">
+                <tr><td style="padding-bottom: 10px;"><span style="color: #64748B; font-size: 12px; text-transform: uppercase; font-weight: 600;">Organization Network</span><br><strong style="color: #F1F5F9; font-size: 16px;">Ed-Trim Key Network</strong></td></tr>
+                <tr><td><span style="color: #64748B; font-size: 12px; text-transform: uppercase; font-weight: 600;">Assigned Role</span><br><strong style="color: #F1F5F9; font-size: 16px;">System Operator</strong></td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="padding: 0 40px 35px 40px;">
+            <table width="100%" style="background-color: #0B111E; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                <tr><td style="padding: 24px;">
+                    <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase;">User ID</p>
+                    <p style="margin: 0 0 20px 0; font-size: 16px; color: #F1F5F9;">${data.email}</p>
+                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase;">Temporary Password</p>
+                    <span class="animated-password" style="background-color: rgba(38, 195, 234, 0.08); border: 1px solid rgba(38, 195, 234, 0.3); color: #26C3EA; padding: 10px 14px; border-radius: 6px; font-family: monospace; font-size: 16px;">${data.password}</span>
+                </td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="padding: 0 40px 40px 40px; text-align: center;"><a href="https://ed.trimkey.in" style="background: linear-gradient(135deg, #26C3EA, #1A9CBF); color: #0B111E; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 14px; display: inline-block;">Access Dashboard</a></td></tr>`
+    ),
+
+    // 3. Teacher Welcome
+    teacherWelcome: (data) => buildTkEmail(
+        `Your Ed-Trim Key Teacher account has been successfully created.`,
+        data.logoUrl,
+        `<tr><td style="padding: 35px 40px 10px 40px;">
+            <h2 style="color: #F1F5F9; margin: 0 0 15px 0; font-size: 20px;">Welcome to your workspace,</h2>
+            <p style="color: #94A3B8; font-size: 15px; line-height: 24px;">Hello ${data.name},<br><br>Your teacher profile has been successfully created and linked to your institution. You have been securely provisioned with the following access parameters:</p>
+            <table width="100%" style="background: rgba(38, 195, 234, 0.04); border-left: 3px solid #26C3EA; border-radius: 4px; padding: 18px; margin-bottom: 28px;">
+                <tr><td style="padding-bottom: 10px;"><span style="color: #64748B; font-size: 12px; text-transform: uppercase; font-weight: 600;">Organization</span><br><strong style="color: #F1F5F9; font-size: 16px;">${data.instName}</strong></td></tr>
+                <tr><td><span style="color: #64748B; font-size: 12px; text-transform: uppercase; font-weight: 600;">Assigned Role</span><br><strong style="color: #F1F5F9; font-size: 16px;">Teacher / Faculty</strong></td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="padding: 0 40px 35px 40px;">
+            <table width="100%" style="background-color: #0B111E; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                <tr><td style="padding: 24px;">
+                    <p style="margin: 0 0 6px 0; font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase;">User ID / Email</p>
+                    <p style="margin: 0 0 20px 0; font-size: 16px; color: #F1F5F9;">${data.email}</p>
+                    <p style="margin: 0 0 8px 0; font-size: 12px; color: #64748B; font-weight: 600; text-transform: uppercase;">Temporary Password</p>
+                    <span class="animated-password" style="background-color: rgba(38, 195, 234, 0.08); border: 1px solid rgba(38, 195, 234, 0.3); color: #26C3EA; padding: 10px 14px; border-radius: 6px; font-family: monospace; font-size: 16px;">${data.password}</span>
+                </td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="padding: 0 40px 40px 40px; text-align: center;"><a href="https://ed.trimkey.in" style="background: linear-gradient(135deg, #26C3EA, #1A9CBF); color: #0B111E; text-decoration: none; padding: 14px 36px; border-radius: 6px; font-weight: 700; font-size: 14px; display: inline-block;">Login to Dashboard</a></td></tr>`
+    ),
+
+    // 4. Job Assigned (Sent to Operator)
+    jobAssigned: (data) => buildTkEmail(
+        `Action Required: A new paper (${data.jobId}) has been assigned to your formatting queue.`,
+        null,
+        `<tr><td style="padding: 35px 40px 10px 40px;">
+            <h2 style="color: #F1F5F9; margin: 0 0 15px 0; font-size: 20px;">Action Required: New Assignment</h2>
+            <p style="color: #94A3B8; font-size: 15px; line-height: 24px;">Hello ${data.operatorName},<br><br>A new academic document has been successfully routed to your formatting queue. Please review the assignment parameters below.</p>
+            <table width="100%" style="background-color: #0B111E; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; margin-bottom: 24px;">
+                <tr><td style="padding: 24px;">
+                    <table width="100%">
+                        <tr><td width="50%" style="padding-bottom: 20px;"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Job ID</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.jobId}</strong></td>
+                        <td width="50%" style="padding-bottom: 20px;"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Subject</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.subject}</strong></td></tr>
+                        <tr><td colspan="2" style="padding-bottom: 20px;"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Institute</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.instName}</strong></td></tr>
+                    </table>
+                </td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="background-color: rgba(245, 158, 11, 0.05); border-top: 1px solid rgba(245, 158, 11, 0.1); padding: 20px 40px;">
+            <p style="color: #F59E0B; font-size: 13px; margin: 0;"><strong style="color: #FCD34D;">SLA Deadline:</strong> Complete by <strong>${data.deadline}</strong>.</p>
+        </td></tr>`
+    ),
+
+    // 5. Job Ready (Sent to Teacher/Admin)
+    jobReady: (data) => buildTkEmail(
+        `Success: Your ${data.subject} paper for ${data.className} (Job ID: ${data.jobId}) is ready for download.`,
+        data.logoUrl,
+        `<tr><td style="padding: 35px 40px 10px 40px;">
+            <h2 style="color: #F1F5F9; margin: 0 0 15px 0; font-size: 20px;">Document Processing Complete</h2>
+            <p style="color: #94A3B8; font-size: 15px; line-height: 24px;">Hello ${data.teacherName},<br><br>Your requested academic paper has been successfully generated by our operators and is now available in your workspace.</p>
+            <table width="100%" style="background-color: #0B111E; border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; margin-bottom: 24px;">
+                <tr><td style="padding: 24px;">
+                    <table width="100%">
+                        <tr><td width="50%" style="padding-bottom: 20px;"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Job ID</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.jobId}</strong></td>
+                        <td width="50%" style="padding-bottom: 20px;"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Subject</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.subject}</strong></td></tr>
+                        <tr><td width="50%"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Class</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.className}</strong></td>
+                        <td width="50%"><span style="color: #64748B; font-size: 11px; text-transform: uppercase;">Test No</span><br><strong style="color: #F1F5F9; font-size: 15px;">${data.testNo || 'N/A'}</strong></td></tr>
+                    </table>
+                </td></tr>
+            </table>
+        </td></tr>
+        <tr><td style="background-color: rgba(16, 185, 129, 0.05); border-top: 1px solid rgba(16, 185, 129, 0.1); padding: 20px 40px;">
+            <p style="color: #10B981; font-size: 13px; margin: 0;"><strong style="color: #34D399;">Ready for Download:</strong> Your file has passed all formatting quality checks and is secured in your repository.</p>
+        </td></tr>`
+    )
+};
+
 export default async function handler(req, res) {
   // 1. Inject CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -869,7 +1067,18 @@ export default async function handler(req, res) {
         }
 
         // 8. Dispatch Email
-        await dispatchWelcomeMessage(payload.adminEmail, payload.clientName, tempPassword, payload.instName, 'Institute Admin', payload.logoUrl);
+        // 🔥 Send Admin Welcome Email
+        await dispatchSystemEmail(
+            payload.adminEmail, 
+            "Welcome to Ed-Trim Key - Credentials Inside", 
+            EmailTemplates.adminWelcome({
+                name: payload.clientName,
+                instName: payload.instName,
+                email: payload.adminEmail,
+                password: generatedPassword, // Ensure you pass the generated password variable here
+                logoUrl: payload.logoUrl
+            })
+        );
 
         result = { success: true, message: "Institute Registered. Credentials Dispatched." };
         break;
@@ -898,7 +1107,18 @@ export default async function handler(req, res) {
         const instName = userContext.user_metadata?.institute_name || payload.instName || "your institute";
         
         // PASSING ALL 6 ARGUMENTS PERFECTLY
-        await dispatchWelcomeMessage(email, payload.name, tempPassword, instName, 'Teacher', null);
+        // 🔥 Send Teacher Welcome Email
+        await dispatchSystemEmail(
+            payload.email, 
+            "Your Teacher Dashboard is Ready", 
+            EmailTemplates.teacherWelcome({
+                name: payload.name,
+                instName: payload.instName,
+                email: payload.email,
+                password: generatedPassword,
+                logoUrl: payload.photoUrl // or use global institute logo
+            })
+        );
 
         result = { success: true, message: "Teacher provisioned and credentials dispatched securely." };
         break;
@@ -923,7 +1143,16 @@ export default async function handler(req, res) {
         }]);
         
         // PASSING ALL 6 ARGUMENTS PERFECTLY
-        await dispatchWelcomeMessage(email, payload.name, tempPassword, 'Ed-Trim Key Network', 'System Operator', null);
+        // 🔥 Send Operator Welcome Email
+        await dispatchSystemEmail(
+            payload.email, 
+            "Operator Access Provisioned", 
+            EmailTemplates.operatorWelcome({
+                name: payload.name,
+                email: payload.email,
+                password: generatedPassword
+            })
+        );
         
         result = { success: true };
         break;
@@ -934,8 +1163,23 @@ export default async function handler(req, res) {
         if(opToAssign) {
             await supabase.from('jobs_queue').update({ operator_id: opToAssign.id, status: 'Assigned' }).eq('job_code', payload.jobId);
             
-            // 🔥 NEW: USE THE SMART PUSH ENGINE
-            await dispatchPushNotification(opToAssign.id, "New Job Assigned", `Job ${payload.jobId} assigned to you.`);
+            // You'll need to fetch the Operator's email from the DB first using payload.operatorName
+        const { data: opData } = await supabaseAdmin.from('users').select('email').eq('full_name', payload.operatorName).single();
+        
+        if (opData && opData.email) {
+            // 🔥 Send Assignment Alert
+            await dispatchSystemEmail(
+                opData.email, 
+                `New Job Assigned: ${payload.jobId}`, 
+                EmailTemplates.jobAssigned({
+                    operatorName: payload.operatorName,
+                    jobId: payload.jobId,
+                    subject: payload.subject || payload.docType || 'Document',
+                    instName: payload.instName || 'Ed-Trim Key Client',
+                    deadline: payload.deadline || '48 Hours'
+                })
+            );
+        }
         }
         result = { success: true, message: `Job officially assigned.` };
         break;
