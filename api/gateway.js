@@ -68,6 +68,38 @@ async function dispatchWelcomeMessage(userEmail, userName, tempPassword, instNam
     }
 }
 
+// --- UNIVERSAL RESEND EMAIL ENGINE ---
+async function dispatchSystemEmail(toEmail, subject, htmlContent) {
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    if (!RESEND_API_KEY) {
+        console.warn("Email bypassed: RESEND_API_KEY not found in Vercel environment.");
+        return null;
+    }
+
+    try {
+        const response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${RESEND_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                from: 'Ed-Trim Key Alerts <alerts@ed.trimkey.in>',
+                reply_to: 'hello@ed.trimkey.in',
+                to: [toEmail],
+                subject: subject,
+                html: htmlContent
+            })
+        });
+
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error("Resend API Error:", error);
+        return null; // We return null so a failed email doesn't crash the main app logic
+    }
+}
+
 export default async function handler(req, res) {
   // 1. Inject CORS Headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
