@@ -299,19 +299,21 @@ const EmailTemplates = {
 };
 
 export default async function handler(req, res) {
-  // 1. Inject CORS Headers
+  // 1. Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*'); 
+  res.setHeader('Access-Control-Allow-Origin', 'https://ed.trimkey.in'); 
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
-  // 2. Intercept and resolve the browser's Preflight (OPTIONS) request
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+
+  // 2. Intercept OPTIONS method
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
   if (req.method !== 'POST') return res.status(405).json({ success: false, message: 'Only POST allowed' });
 
-  const { action, email, password, token, ...payload } = req.body;
+  // 🔥 ADDED SAFEGUARD: "|| {}" prevents the server from crashing if req.body is missing
+  const { action, email, password, token, ...payload } = req.body || {};
   
   try {
     let result = {};
