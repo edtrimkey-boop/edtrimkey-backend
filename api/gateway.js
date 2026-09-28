@@ -659,10 +659,15 @@ export default async function handler(req, res) {
         const deadlineDate = new Date();
         deadlineDate.setHours(deadlineDate.getHours() + 48);
 
+        // 🔥 Added variables for Email Dispatch
         let assignedOperatorId = null;
+        let assignedOperatorEmail = null;
+        let assignedOperatorName = null;
+
+        // 🔥 Added 'email' and 'full_name' to the select query
         const { data: opData } = await supabase
             .from('users')
-            .select('id, operator_profiles!inner(subjects, work_types)')
+            .select('id, email, full_name, operator_profiles!inner(subjects, work_types)')
             .eq('role', 'operator')
             .eq('status', 'Active');
 
@@ -683,7 +688,11 @@ export default async function handler(req, res) {
             });
             
             if (matchingOps.length > 0) {
-                assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].id;
+                // 🔥 Extracted to a variable so we can grab all 3 details
+                const chosenOp = matchingOps[Math.floor(Math.random() * matchingOps.length)];
+                assignedOperatorId = chosenOp.id;
+                assignedOperatorEmail = chosenOp.email;
+                assignedOperatorName = chosenOp.full_name;
             }
         }
 
@@ -731,6 +740,7 @@ export default async function handler(req, res) {
         }]);
 
         if (notifErr) console.error("Notification DB Error (Paper):", notifErr);
+        
         // 🔥 EXPLICIT INLINE PUSH (Matches your Broadcast Engine)
         if (assignedOperatorId) {
             const { data: opSessions } = await supabase
@@ -750,6 +760,21 @@ export default async function handler(req, res) {
                 } else {
                     console.log("Push bypassed: Operator has push toggled OFF or no valid tokens.");
                 }
+            }
+
+            // 🔥 NEW: AUTOMATED RESEND EMAIL DISPATCH
+            if (assignedOperatorEmail) {
+                await dispatchSystemEmail(
+                    assignedOperatorEmail,
+                    `New Job Assigned: ${universalJobId}`,
+                    EmailTemplates.jobAssigned({
+                        operatorName: assignedOperatorName,
+                        jobId: universalJobId,
+                        subject: payload.subject || 'Paper Formatting',
+                        instName: instRes.data.institute_name || 'Ed-Trim Key Client',
+                        deadline: deadlineDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+                    })
+                );
             }
         }
         
@@ -806,10 +831,15 @@ export default async function handler(req, res) {
         const docDeadlineDate = new Date();
         docDeadlineDate.setHours(docDeadlineDate.getHours() + 48);
 
+        // 🔥 Added variables for Email Dispatch
         let assignedOperatorId = null; 
+        let assignedOperatorEmail = null;
+        let assignedOperatorName = null;
+
+        // 🔥 Added 'email' and 'full_name' to the select query
         const { data: opDocData } = await supabase
             .from('users')
-            .select('id, operator_profiles!inner(work_types)')
+            .select('id, email, full_name, operator_profiles!inner(work_types)')
             .eq('role', 'operator')
             .eq('status', 'Active');
 
@@ -823,7 +853,11 @@ export default async function handler(req, res) {
             });
             
             if (matchingOps.length > 0) {
-                assignedOperatorId = matchingOps[Math.floor(Math.random() * matchingOps.length)].id;
+                // 🔥 Extracted to a variable so we can grab all 3 details
+                const chosenOp = matchingOps[Math.floor(Math.random() * matchingOps.length)];
+                assignedOperatorId = chosenOp.id;
+                assignedOperatorEmail = chosenOp.email;
+                assignedOperatorName = chosenOp.full_name;
             }
         }
 
@@ -879,6 +913,21 @@ export default async function handler(req, res) {
                 if (docTokens.length > 0) {
                     await sendPushNotification(docTokens, "New Document Assigned", `Document Job ${docJobId} has been assigned to your queue.`);
                 }
+            }
+
+            // 🔥 NEW: AUTOMATED RESEND EMAIL DISPATCH
+            if (assignedOperatorEmail) {
+                await dispatchSystemEmail(
+                    assignedOperatorEmail,
+                    `New Document Assigned: ${docJobId}`,
+                    EmailTemplates.jobAssigned({
+                        operatorName: assignedOperatorName,
+                        jobId: docJobId,
+                        subject: documentTypeStr,
+                        instName: docInstRes.data?.institute_name || 'Ed-Trim Key Client',
+                        deadline: docDeadlineDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+                    })
+                );
             }
         }
 
