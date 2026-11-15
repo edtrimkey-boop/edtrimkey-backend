@@ -1279,19 +1279,40 @@ export default async function handler(req, res) {
 
         const flowApiUrl = process.env.FLOW_API_URL || "https://flow.trimkey.in/api/v1";
         const flowApiKey = process.env.FLOW_API_KEY;
-        const flowMerchantId = process.env.FLOW_MERCHANT_ID;
 
         // If environment variables are missing during dev, return a helpful notice
-        if (!flowApiKey || !flowMerchantId) {
-            console.warn("[Trim Key Flow]: Missing FLOW_API_KEY or FLOW_MERCHANT_ID in environment variables.");
+        if (!flowApiKey) {
+            console.warn("[Trim Key Flow]: Missing FLOW_API_KEY in environment variables.");
             result = {
                 success: true,
                 refId: "TKF-PAY-DEV-" + Date.now(),
                 checkout_url: "https://flow.trimkey.in",
                 amount: amount,
-                warning: "Set FLOW_API_KEY and FLOW_MERCHANT_ID in your backend environment variables."
+                warning: "Set FLOW_API_KEY in your backend environment variables."
             };
             break;
+        }
+
+        // Build payment payload (merchant_id is now completely optional!)
+        const paymentData = {
+            amount: Math.round(Number(amount) * 100), // Convert INR to paise for Flow
+            currency: "INR",
+            purpose: `${type} Recharge - ${instCode || 'ETK'}`,
+            customer: {
+                name: name || userContext?.user_metadata?.name || "Institute Admin",
+                email: email || userContext?.email || "admin@trimkey.in",
+                phone: phone || userContext?.user_metadata?.phone || "9999999999"
+            },
+            metadata: {
+                instCode: instCode,
+                serviceType: type,
+                quantity: quantity || 1,
+                userId: userContext?.id
+            }
+        };
+
+        if (process.env.FLOW_MERCHANT_ID) {
+            paymentData.merchant_id = process.env.FLOW_MERCHANT_ID;
         }
 
         // Call Trim Key Flow API to initialize session
@@ -1303,23 +1324,7 @@ export default async function handler(req, res) {
             },
             body: JSON.stringify({
                 action: "payment.create",
-                data: {
-                    merchant_id: flowMerchantId,
-                    amount: Math.round(Number(amount) * 100), // Convert INR to paise for Flow
-                    currency: "INR",
-                    purpose: `${type} Recharge - ${instCode || 'ETK'}`,
-                    customer: {
-                        name: name || userContext?.user_metadata?.name || "Institute Admin",
-                        email: email || userContext?.email || "admin@trimkey.in",
-                        phone: phone || userContext?.user_metadata?.phone || "9999999999"
-                    },
-                    metadata: {
-                        instCode: instCode,
-                        serviceType: type,
-                        quantity: quantity || 1,
-                        userId: userContext?.id
-                    }
-                }
+                data: paymentData
             })
         });
 
@@ -1329,10 +1334,13 @@ export default async function handler(req, res) {
             throw new Error(flowResult.error?.message || "Failed to create checkout session with Trim Key Flow.");
         }
 
+        const paymentNumber = flowResult.data.payment_number || flowResult.data.payment_id;
+        const checkoutUrl = flowResult.data.checkout_url || `https://flow.trimkey.in/checkout/${paymentNumber}`;
+
         result = {
             success: true,
-            checkout_url: flowResult.data.checkout_url,
-            refId: flowResult.data.payment_number,
+            checkout_url: checkoutUrl,
+            refId: paymentNumber,
             amount: amount
         };
         break;
