@@ -8,6 +8,41 @@ import nodemailer from 'nodemailer';
 // 1. Initialize Admin Client (Bypasses RLS & Email Confirmation)
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+// ── Trim Key Flow Helper ─────────────────────────────────────────────────────
+let cachedFlowMerchantId = null;
+
+async function resolveFlowMerchantId(flowApiUrl, flowApiKey) {
+    if (process.env.FLOW_MERCHANT_ID) return process.env.FLOW_MERCHANT_ID;
+    if (cachedFlowMerchantId) return cachedFlowMerchantId;
+
+    try {
+        const merchRes = await fetch(flowApiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${flowApiKey}`
+            },
+            body: JSON.stringify({
+                action: "merchant.list",
+                data: { limit: 10 }
+            })
+        });
+        const merchJson = await merchRes.json();
+        if (merchJson.success && Array.isArray(merchJson.data) && merchJson.data.length > 0) {
+            const activeMerch = merchJson.data.find(m => m.status === 'active') || merchJson.data[0];
+            if (activeMerch && activeMerch.id) {
+                cachedFlowMerchantId = activeMerch.id;
+                console.log("[Trim Key Flow]: Auto-resolved merchant_id ->", cachedFlowMerchantId);
+                return cachedFlowMerchantId;
+            }
+        }
+    } catch (e) {
+        console.warn("[Trim Key Flow]: Auto-resolve merchant_id error:", e.message);
+    }
+    return null;
+}
+
+
 // 2. Configure Gmail SMTP Transporter (Bulletproof App Password Method)
 const mailTransporter = nodemailer.createTransport({
     service: 'gmail',
@@ -1293,16 +1328,34 @@ export default async function handler(req, res) {
             break;
         }
 
-        // Build payment payload (merchant_id is now completely optional!)
+        // Build customer profile with strict Indian phone normalization
+        const customer = {
+            name: name || userContext?.user_metadata?.name || "Institute Admin",
+            email: email || userContext?.email || "admin@trimkey.in"
+        };
+
+        // Normalize phone: must be exactly 10 digits starting with [6-9]
+        let rawPhone = String(phone || userContext?.user_metadata?.phone || userContext?.phone || "").replace(/\D/g, "");
+        if (rawPhone.length > 10 && rawPhone.startsWith("91")) {
+            rawPhone = rawPhone.slice(-10);
+        } else if (rawPhone.length > 10 && rawPhone.startsWith("0")) {
+            rawPhone = rawPhone.slice(-10);
+        }
+
+        if (/^[6-9]\d{9}$/.test(rawPhone)) {
+            customer.phone = rawPhone;
+        }
+        // Note: If phone is invalid/empty, omit customer.phone completely so Flow Zod schema passes
+
+        // Auto-resolve merchant_id (checks FLOW_MERCHANT_ID env or auto-fetches via merchant.list)
+        const merchantId = await resolveFlowMerchantId(flowApiUrl, flowApiKey);
+
+        // Build payment payload
         const paymentData = {
             amount: Math.round(Number(amount) * 100), // Convert INR to paise for Flow
             currency: "INR",
             purpose: `${type} Recharge - ${instCode || 'ETK'}`,
-            customer: {
-                name: name || userContext?.user_metadata?.name || "Institute Admin",
-                email: email || userContext?.email || "admin@trimkey.in",
-                phone: phone || userContext?.user_metadata?.phone || "9999999999"
-            },
+            customer: customer,
             metadata: {
                 instCode: instCode,
                 serviceType: type,
@@ -1311,8 +1364,8 @@ export default async function handler(req, res) {
             }
         };
 
-        if (process.env.FLOW_MERCHANT_ID) {
-            paymentData.merchant_id = process.env.FLOW_MERCHANT_ID;
+        if (merchantId) {
+            paymentData.merchant_id = merchantId;
         }
 
         // Call Trim Key Flow API to initialize session
