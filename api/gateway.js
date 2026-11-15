@@ -644,60 +644,7 @@ export default async function handler(req, res) {
         if (admEnabled === "YES") generatedApps.push({ name: "Admission System", url: "https://script.google.com/macros/s/AKfycbyhSh64AGV-oFrGZL25mWKOhjO1vn7ID_FZ0kcwokk3FuAzwQnygeHKVnwGlRi4DuZRhQ/exec", targetRole: "all" });
         if (feeEnabled === "YES") generatedApps.push({ name: "Fee Collection", url: "https://script.google.com/macros/s/AKfycbxWrJ75j__w2-hjxvoQGHvM5ztFMzod6RUxAputcyZGlESuhaPWZAJbk-gQnXhCZNSL/exec", targetRole: "admin" });
 
-        // ── Auto-Reconcile Recent Uncredited Flow Payments (e.g. ₹9 Report Card) ──
-        if (dashRole === 'admin' && dashInstUUID && process.env.FLOW_API_KEY) {
-            try {
-                const listRes = await fetch(process.env.FLOW_API_URL || "https://flow.trimkey.in/api/v1", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${process.env.FLOW_API_KEY}`
-                    },
-                    body: JSON.stringify({
-                        action: "payment.list",
-                        data: { limit: 10 }
-                    })
-                });
-                const listJson = await listRes.json();
-                if (listJson.success && Array.isArray(listJson.data)) {
-                    for (const pay of listJson.data) {
-                        if (pay.status === 'SUCCESS' || pay.status === 'success') {
-                            const isRecorded = (billingRes.data || []).some(b => b.ledger_ref === `TXN-${pay.payment_number}` || (b.description && b.description.includes(pay.payment_number)));
-                            if (!isRecorded) {
-                                console.log("[Auto-Reconciliation]: Crediting unrecorded Flow payment:", pay.payment_number);
-                                const serviceType = pay.purpose?.includes('Report') ? 'Report Card' : (pay.purpose || 'Report Card');
-                                await recordPaymentAndCreditQuota({
-                                    paymentNumber: pay.payment_number,
-                                    instId: dashInstUUID,
-                                    serviceType: serviceType,
-                                    amount: Number(pay.amount) / 100,
-                                    quantity: 1,
-                                    paymentGateway: 'Trim Key Flow'
-                                });
-                                if (billingRes.data) {
-                                    billingRes.data.unshift({
-                                        id: pay.payment_number,
-                                        ledger_ref: 'TXN-' + Date.now(),
-                                        created_at: pay.created_at || new Date().toISOString(),
-                                        transaction_type: 'PAYMENT_RECEIVED',
-                                        service_type: serviceType,
-                                        amount: Number(pay.amount) / 100,
-                                        status: 'POSTED',
-                                        payment_ref: pay.payment_number
-                                    });
-                                }
-                                rcLeft += 1;
-                                rcTotal += 1;
-                            }
-                        }
-                    }
-                }
-            } catch (reconErr) {
-                console.warn("[Auto-Reconciliation Warning]:", reconErr.message);
-            }
-        }
-
-       result = {
+        result = {
           profile: {
             id: userData.id, 
             status: userData.status, // <--- CRITICAL FIX: Sends 'Pending' to the frontend to trigger the popup
@@ -1676,57 +1623,22 @@ export default async function handler(req, res) {
       // ==========================================
       case "confirmFlowPayment": {
         const { paymentNumber, instCode, serviceType, amount, quantity } = payload;
-        console.log("[Trim Key Flow]: Reconciling client payment ->", paymentNumber, instCode, serviceType, amount);
-
-        let finalServiceType = serviceType || 'Report Card';
-        let finalAmount = Number(amount) || 0;
-        let finalQty = Number(quantity) || 1;
-        let resolvedInstCode = instCode || userContext?.user_metadata?.institute_code;
-
-        // Verify with Flow API if API key is present
-        const flowApiKey = process.env.FLOW_API_KEY;
-        const flowApiUrl = process.env.FLOW_API_URL || "https://flow.trimkey.in/api/v1";
-
-        if (flowApiKey && paymentNumber) {
-            try {
-                const getPayRes = await fetch(flowApiUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${flowApiKey}`
-                    },
-                    body: JSON.stringify({
-                        action: "payment.get",
-                        data: { payment_id: paymentNumber }
-                    })
-                });
-                const getPayJson = await getPayRes.json();
-                if (getPayJson.success && getPayJson.data) {
-                    const payData = getPayJson.data;
-                    if (payData.amount) finalAmount = Number(payData.amount) / 100;
-                    if (payData.metadata?.serviceType) finalServiceType = payData.metadata.serviceType;
-                    if (payData.metadata?.quantity) finalQty = Number(payData.metadata.quantity);
-                    if (payData.metadata?.instCode) resolvedInstCode = payData.metadata.instCode;
-                }
-            } catch (flowErr) {
-                console.warn("[Trim Key Flow]: Flow API payment.get verification error:", flowErr.message);
-            }
-        }
+        console.log("[Payment Gateway]: Recording client confirmed payment ->", paymentNumber, instCode, serviceType, amount);
 
         const creditResult = await recordPaymentAndCreditQuota({
             paymentNumber: paymentNumber,
-            instCode: resolvedInstCode,
+            instCode: instCode || userContext?.user_metadata?.institute_code,
             instId: userContext?.user_metadata?.institute_id,
             userId: userContext?.id,
-            serviceType: finalServiceType,
-            amount: finalAmount,
-            quantity: finalQty,
+            serviceType: serviceType || 'Report Card',
+            amount: Number(amount) || 0,
+            quantity: Number(quantity) || 1,
             paymentGateway: 'Trim Key Flow'
         });
 
         result = { 
             success: true, 
-            message: "Payment verified and quota credited successfully!",
+            message: "Payment recorded in database and quota updated successfully.",
             ...creditResult 
         };
         break;
