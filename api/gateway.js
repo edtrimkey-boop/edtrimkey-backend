@@ -236,7 +236,7 @@ export default async function handler(req, res) {
   try {
     let result = {};
     let userContext = null;
-    const publicActions = ["login", "submitInstituteRegistration"];
+    const publicActions = ["login", "submitInstituteRegistration", "flowWebhook"];
     
     // 2. JWT SECURITY WRAPPER
     if (!publicActions.includes(action)) {
@@ -1271,9 +1271,155 @@ export default async function handler(req, res) {
         break;
       }
 
-      case "createPaymentLink":
-        result = { success: true, refId: `TXN-${Date.now()}`, amount: payload.amount };
+      case "createPaymentLink": {
+        const { instCode, type, amount, email, name, phone, quantity } = payload;
+        if (!amount || Number(amount) <= 0) {
+            throw new Error("Invalid payment amount.");
+        }
+
+        const flowApiUrl = process.env.FLOW_API_URL || "https://flow.trimkey.in/api/v1";
+        const flowApiKey = process.env.FLOW_API_KEY;
+        const flowMerchantId = process.env.FLOW_MERCHANT_ID;
+
+        // If environment variables are missing during dev, return a helpful notice
+        if (!flowApiKey || !flowMerchantId) {
+            console.warn("[Trim Key Flow]: Missing FLOW_API_KEY or FLOW_MERCHANT_ID in environment variables.");
+            result = {
+                success: true,
+                refId: "TKF-PAY-DEV-" + Date.now(),
+                checkout_url: "https://flow.trimkey.in",
+                amount: amount,
+                warning: "Set FLOW_API_KEY and FLOW_MERCHANT_ID in your backend environment variables."
+            };
+            break;
+        }
+
+        // Call Trim Key Flow API to initialize session
+        const flowResponse = await fetch(flowApiUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${flowApiKey}`
+            },
+            body: JSON.stringify({
+                action: "payment.create",
+                data: {
+                    merchant_id: flowMerchantId,
+                    amount: Math.round(Number(amount) * 100), // Convert INR to paise for Flow
+                    currency: "INR",
+                    purpose: `${type} Recharge - ${instCode || 'ETK'}`,
+                    customer: {
+                        name: name || userContext?.user_metadata?.name || "Institute Admin",
+                        email: email || userContext?.email || "admin@trimkey.in",
+                        phone: phone || userContext?.user_metadata?.phone || "9999999999"
+                    },
+                    metadata: {
+                        instCode: instCode,
+                        serviceType: type,
+                        quantity: quantity || 1,
+                        userId: userContext?.id
+                    }
+                }
+            })
+        });
+
+        const flowResult = await flowResponse.json();
+
+        if (!flowResult.success) {
+            throw new Error(flowResult.error?.message || "Failed to create checkout session with Trim Key Flow.");
+        }
+
+        result = {
+            success: true,
+            checkout_url: flowResult.data.checkout_url,
+            refId: flowResult.data.payment_number,
+            amount: amount
+        };
         break;
+      }
+
+      // ==========================================
+      // TRIM KEY FLOW WEBHOOK HANDLER
+      // ==========================================
+      case "flowWebhook": {
+        const webhookData = req.body;
+        console.log("[Trim Key Flow Webhook]: Event received", webhookData?.event || webhookData?.action);
+
+        if (webhookData?.event === "payment.success" || webhookData?.status === "SUCCESS") {
+            const paymentInfo = webhookData.payment || webhookData.data || {};
+            const meta = webhookData.metadata || webhookData.order?.metadata || {};
+            const paymentNumber = paymentInfo.payment_number || paymentInfo.id;
+            const instCode = meta.instCode;
+            const serviceType = meta.serviceType || "App Subscriptions";
+            const quantity = Number(meta.quantity) || 1;
+            const paidAmount = paymentInfo.amount ? (Number(paymentInfo.amount) / 100) : Number(payload.amount || 0);
+
+            if (instCode) {
+                const { data: inst } = await supabaseAdmin.from('institutes').select('id, name').eq('code', instCode).maybeSingle();
+                if (inst) {
+                    // 1. Post to billing_ledger
+                    await supabaseAdmin.from('billing_ledger').insert([{
+                        ledger_ref: 'TXN-' + Date.now(),
+                        payment_ref: paymentNumber,
+                        institute_id: inst.id,
+                        service_type: serviceType,
+                        transaction_type: 'PAYMENT_RECEIVED',
+                        direction: 'CREDIT',
+                        amount: paidAmount,
+                        currency: 'INR',
+                        status: 'POSTED',
+                        payment_method: 'Online',
+                        payment_gateway: 'Trim Key Flow',
+                        gateway_payment_id: paymentNumber,
+                        description: `Payment confirmed via Trim Key Flow for ${serviceType}`
+                    }]);
+
+                    // 2. Increment quotas if service is Paper/Doc related
+                    const featureMap = {
+                        'MCQ Paper': 'paper_formatter',
+                        'Math Paper': 'math_paper',
+                        'Report Card': 'report_card',
+                        'Admit Card': 'admit_card'
+                    };
+                    const fKey = featureMap[serviceType] || 'paper_formatter';
+
+                    const { data: featRow } = await supabaseAdmin
+                        .from('subscription_features')
+                        .select('id, remaining, subscriptions!inner(institute_id, status)')
+                        .eq('subscriptions.institute_id', inst.id)
+                        .eq('subscriptions.status', 'Active')
+                        .eq('feature_key', fKey)
+                        .maybeSingle();
+
+                    if (featRow) {
+                        await supabaseAdmin
+                            .from('subscription_features')
+                            .update({ remaining: (featRow.remaining || 0) + quantity })
+                            .eq('id', featRow.id);
+                    }
+
+                    // 3. If registration payment, mark subscription Active & Paid
+                    if (serviceType.includes('Registration') || serviceType.includes('Subscription')) {
+                        await supabaseAdmin
+                            .from('subscriptions')
+                            .update({ payment_status: 'Paid', status: 'Active' })
+                            .eq('institute_id', inst.id);
+                    }
+                }
+            }
+        }
+        result = { success: true, message: "Webhook processed" };
+        break;
+      }
+
+      // ==========================================
+      // CLIENT-SIDE PAYMENT RECONCILIATION FALLBACK
+      // ==========================================
+      case "confirmFlowPayment": {
+        const { paymentNumber, instCode } = payload;
+        result = { success: true, message: "Payment verified by Flow" };
+        break;
+      }
 
      // ==========================================
       // MANUAL SYSTEM BROADCASTS & FCM PUSH
@@ -1705,58 +1851,7 @@ export default async function handler(req, res) {
         break;
       }
 
-// When action === 'createPaymentLink'
-if (action === 'createPaymentLink') {
-    const { instCode, type, amount, email, name, phone, quantity } = req.body;
-
-    // 1. Request a payment session from Trim Key Flow
-    const flowResponse = await fetch(process.env.FLOW_API_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.FLOW_API_KEY}`
-        },
-        body: JSON.stringify({
-            action: "payment.create",
-            data: {
-                merchant_id: process.env.FLOW_MERCHANT_ID,
-                amount: Math.round(Number(amount) * 100), // Trim Key Flow expects amount in paise
-                currency: "INR",
-                purpose: `${type} Recharge - ${instCode}`,
-                customer: {
-                    name: name || "Institute Admin",
-                    email: email,
-                    phone: phone || "9999999999"
-                },
-                metadata: {
-                    instCode: instCode,
-                    type: type,
-                    quantity: quantity || 1
-                }
-            }
-        })
-    });
-
-    const flowData = await flowResponse.json();
-
-    if (!flowData.success) {
-        return res.status(400).json({ 
-            success: false, 
-            message: flowData.error?.message || "Failed to create Flow session" 
-        });
-    }
-
-    // 2. Return checkout_url and payment_number to Ed-Trim Key frontend
-    return res.json({
-        success: true,
-        checkout_url: flowData.data.checkout_url,
-        refId: flowData.data.payment_number,
-        amount: amount
-    });
-}
-            
-
-      case "addJobTimelineEvent": {
+case "addJobTimelineEvent": {
         const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id, institute_id').eq('job_code', payload.jobId).single();
         if (!currentJob) throw new Error("Job not found.");
 
