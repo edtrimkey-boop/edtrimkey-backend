@@ -57,15 +57,26 @@ async function recordPaymentAndCreditQuota({
         // Insert into billing_ledger using strictly valid database columns
         const { error: ledgerErr } = await supabaseAdmin.from('billing_ledger').insert([{
             ledger_ref: ledgerRefVal,
+            payment_ref: refStr,
             institute_id: effectiveInstId,
             user_id: userId || null,
             service_type: normalizedService,
             transaction_type: 'PAYMENT_RECEIVED',
             direction: 'CREDIT',
             amount: numAmount,
+            currency: 'INR',
             status: 'POSTED',
-            payment_method: 'Online',
-            description: `Payment confirmed via ${paymentGateway} for ${normalizedService} (Ref: ${refStr})`
+            payment_method: 'ONLINE',
+            payment_gateway: paymentGateway || 'Trim Key Flow',
+            gateway_payment_id: refStr,
+            reference_type: 'FLOW_PAYMENT',
+            reference_id: refStr,
+            description: `Payment confirmed via ${paymentGateway} for ${normalizedService} (Ref: ${refStr})`,
+            metadata: {
+                quantity: Number(quantity) || 1,
+                serviceType: normalizedService,
+                paymentNumber: refStr
+            }
         }]);
 
         if (ledgerErr) {
