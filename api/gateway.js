@@ -112,7 +112,8 @@ async function recordPaymentAndCreditQuota({
                         .update({
                             remaining: (featRow.remaining || 0) + qtyToAdd,
                             total_limit: (featRow.total_limit || 0) + qtyToAdd,
-                            enabled: true
+                            enabled: true,
+                            updated_at: new Date().toISOString()
                         })
                         .eq('id', featRow.id);
                     if (updErr) console.error("[Subscription Feature Update Error]:", updErr.message);
@@ -126,7 +127,9 @@ async function recordPaymentAndCreditQuota({
                             enabled: true,
                             total_limit: qtyToAdd,
                             remaining: qtyToAdd,
-                            used: 0
+                            used: 0,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString()
                         }]);
                     if (insErr) console.error("[Subscription Feature Insert Error]:", insErr.message);
                     else console.log(`[Payment Credit]: Created new ${fKey} quota with ${qtyToAdd} for inst ${effectiveInstId}`);
@@ -995,7 +998,7 @@ export default async function handler(req, res) {
         }]);
 
         if (submitDbError) throw new Error("Database Write Failed: " + submitDbError.message);
-        await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1 }).eq('id', paperFeature.id);
+        await supabase.from('subscription_features').update({ used: paperFeature.used + 1, remaining: paperFeature.remaining - 1, updated_at: new Date().toISOString() }).eq('id', paperFeature.id);
        
         let targetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let targetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
@@ -1150,7 +1153,7 @@ export default async function handler(req, res) {
             }
         }]);
 
-        await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1 }).eq('id', docFeature.id);
+        await supabase.from('subscription_features').update({ used: docFeature.used + 1, remaining: docFeature.remaining - 1, updated_at: new Date().toISOString() }).eq('id', docFeature.id);
 
         let docTargetUserArr = assignedOperatorId ? [assignedOperatorId] : [];
         let docTargetRoleArr = assignedOperatorId ? [] : ['operator', 'system admin', 'super admin'];
@@ -1263,12 +1266,13 @@ export default async function handler(req, res) {
         if (subErr || !initialSub) throw new Error("Subscription Error: " + (subErr?.message || "Failed to generate subscription."));
 
         // 6. Apply Subscription Features
+        const nowTimestampZ = new Date().toISOString();
         const { error: featErr } = await supabaseAdmin.from('subscription_features').insert([
-            { subscription_id: initialSub.id, feature_key: 'paper_formatter', enabled: true, total_limit: payload.papersTotal, remaining: payload.papersTotal },
-            { subscription_id: initialSub.id, feature_key: 'sms', enabled: true, total_limit: payload.smsTotal, remaining: payload.smsTotal },
-            { subscription_id: initialSub.id, feature_key: 'attendance', enabled: payload.attendanceToggle === "YES" },
-            { subscription_id: initialSub.id, feature_key: 'admission', enabled: payload.admissionToggle === "YES" },
-            { subscription_id: initialSub.id, feature_key: 'fee_collection', enabled: payload.feeToggle === "YES" }
+            { subscription_id: initialSub.id, feature_key: 'paper_formatter', enabled: true, total_limit: payload.papersTotal, remaining: payload.papersTotal, created_at: nowTimestampZ, updated_at: nowTimestampZ },
+            { subscription_id: initialSub.id, feature_key: 'sms', enabled: true, total_limit: payload.smsTotal, remaining: payload.smsTotal, created_at: nowTimestampZ, updated_at: nowTimestampZ },
+            { subscription_id: initialSub.id, feature_key: 'attendance', enabled: payload.attendanceToggle === "YES", created_at: nowTimestampZ, updated_at: nowTimestampZ },
+            { subscription_id: initialSub.id, feature_key: 'admission', enabled: payload.admissionToggle === "YES", created_at: nowTimestampZ, updated_at: nowTimestampZ },
+            { subscription_id: initialSub.id, feature_key: 'fee_collection', enabled: payload.feeToggle === "YES", created_at: nowTimestampZ, updated_at: nowTimestampZ }
         ]);
         if (featErr) throw new Error("Features DB Error: " + featErr.message);
 
@@ -1467,7 +1471,7 @@ export default async function handler(req, res) {
         const { data: toggleFeat } = await supabase.from('subscription_features').select('*, subscriptions!inner(institute_id, status)').eq('subscriptions.institute_id', instData.id).eq('subscriptions.status', 'Active').eq('feature_key', fKey).single();
         if (!toggleFeat) throw new Error("Module not found in active subscriptions.");
         
-        await supabase.from('subscription_features').update({ enabled: payload.stateStr === 'YES' }).eq('id', toggleFeat.id);
+        await supabase.from('subscription_features').update({ enabled: payload.stateStr === 'YES', updated_at: new Date().toISOString() }).eq('id', toggleFeat.id);
         result = { success: true };
         break;
 
