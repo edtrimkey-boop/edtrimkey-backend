@@ -584,12 +584,17 @@ export default async function handler(req, res) {
             .order('created_at', { ascending: false })
             .limit(30);
 
-        const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes] = await Promise.all([
+        const billingLedgerQuery = dashInstUUID
+            ? supabase.from('billing_ledger').select('*').eq('institute_id', dashInstUUID).order('created_at', { ascending: false }).limit(50)
+            : Promise.resolve({ data: [] });
+
+        const [subsRes, teacherRes, jobsRes, notifsRes, allInstRes, billingRes] = await Promise.all([
             supabase.from('subscriptions').select('*, subscription_features(*)').eq('institute_id', dashInstUUID).eq('status', 'Active'),
             supabase.from('teacher_profiles').select('subject_handles').eq('user_id', dashUserUUID).maybeSingle(),
             jobsQuery,
             notifQuery,
-            supabase.from('institutes').select('id, institute_name') 
+            supabase.from('institutes').select('id, institute_name'),
+            billingLedgerQuery
         ]);
 
         const activeSubs = subsRes.data || [];
@@ -637,6 +642,59 @@ export default async function handler(req, res) {
         if (attEnabled === "YES") generatedApps.push({ name: "Attendance App", url: "https://script.google.com/macros/s/AKfycbxWrJ75j__w2-hjxvoQGHvM5ztFMzod6RUxAputcyZGlESuhaPWZAJbk-gQnXhCZNSL/exec", targetRole: "all" });
         if (admEnabled === "YES") generatedApps.push({ name: "Admission System", url: "https://script.google.com/macros/s/AKfycbyhSh64AGV-oFrGZL25mWKOhjO1vn7ID_FZ0kcwokk3FuAzwQnygeHKVnwGlRi4DuZRhQ/exec", targetRole: "all" });
         if (feeEnabled === "YES") generatedApps.push({ name: "Fee Collection", url: "https://script.google.com/macros/s/AKfycbxWrJ75j__w2-hjxvoQGHvM5ztFMzod6RUxAputcyZGlESuhaPWZAJbk-gQnXhCZNSL/exec", targetRole: "admin" });
+
+        // ── Auto-Reconcile Recent Uncredited Flow Payments (e.g. ₹9 Report Card) ──
+        if (dashRole === 'admin' && dashInstUUID && process.env.FLOW_API_KEY) {
+            try {
+                const listRes = await fetch(process.env.FLOW_API_URL || "https://flow.trimkey.in/api/v1", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${process.env.FLOW_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        action: "payment.list",
+                        data: { limit: 10 }
+                    })
+                });
+                const listJson = await listRes.json();
+                if (listJson.success && Array.isArray(listJson.data)) {
+                    for (const pay of listJson.data) {
+                        if (pay.status === 'SUCCESS' || pay.status === 'success') {
+                            const isRecorded = (billingRes.data || []).some(b => b.payment_ref === pay.payment_number || b.gateway_payment_id === pay.payment_number);
+                            if (!isRecorded) {
+                                console.log("[Auto-Reconciliation]: Crediting unrecorded Flow payment:", pay.payment_number);
+                                const serviceType = pay.purpose?.includes('Report') ? 'Report Card' : (pay.purpose || 'Report Card');
+                                await recordPaymentAndCreditQuota({
+                                    paymentNumber: pay.payment_number,
+                                    instId: dashInstUUID,
+                                    serviceType: serviceType,
+                                    amount: Number(pay.amount) / 100,
+                                    quantity: 1,
+                                    paymentGateway: 'Trim Key Flow'
+                                });
+                                if (billingRes.data) {
+                                    billingRes.data.unshift({
+                                        id: pay.payment_number,
+                                        ledger_ref: 'TXN-' + Date.now(),
+                                        created_at: pay.created_at || new Date().toISOString(),
+                                        transaction_type: 'PAYMENT_RECEIVED',
+                                        service_type: serviceType,
+                                        amount: Number(pay.amount) / 100,
+                                        status: 'POSTED',
+                                        payment_ref: pay.payment_number
+                                    });
+                                }
+                                rcLeft += 1;
+                                rcTotal += 1;
+                            }
+                        }
+                    }
+                }
+            } catch (reconErr) {
+                console.warn("[Auto-Reconciliation Warning]:", reconErr.message);
+            }
+        }
 
        result = {
           profile: {
