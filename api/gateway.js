@@ -1366,6 +1366,8 @@ export default async function handler(req, res) {
 
         if (merchantId) {
             paymentData.merchant_id = merchantId;
+        } else {
+            throw new Error("Missing FLOW_MERCHANT_ID in backend environment variables. Please add FLOW_MERCHANT_ID to your Vercel project settings.");
         }
 
         // Call Trim Key Flow API to initialize session
