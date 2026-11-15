@@ -19,7 +19,9 @@ async function recordPaymentAndCreditQuota({
     serviceType,
     amount,
     quantity,
-    paymentGateway = 'Trim Key Flow'
+    paymentGateway = 'Trim Key Flow',
+    providerPaymentId = null,
+    providerOrderId = null
 }) {
     try {
         let institute = null;
@@ -55,6 +57,9 @@ async function recordPaymentAndCreditQuota({
         const normalizedService = serviceType || 'Report Card';
 
         // Insert into billing_ledger using strictly valid database columns
+        const effectiveGatewayPaymentId = providerPaymentId || refStr;
+        const effectiveGatewayOrderId = providerOrderId || null;
+
         const { error: ledgerErr } = await supabaseAdmin.from('billing_ledger').insert([{
             ledger_ref: ledgerRefVal,
             payment_ref: refStr,
@@ -68,14 +73,17 @@ async function recordPaymentAndCreditQuota({
             status: 'POSTED',
             payment_method: 'ONLINE',
             payment_gateway: paymentGateway || 'Trim Key Flow',
-            gateway_payment_id: refStr,
+            gateway_order_id: effectiveGatewayOrderId,
+            gateway_payment_id: effectiveGatewayPaymentId,
             reference_type: 'FLOW_PAYMENT',
-            reference_id: refStr,
-            description: `Payment confirmed via ${paymentGateway} for ${normalizedService} (Ref: ${refStr})`,
+            reference_id: effectiveGatewayPaymentId,
+            description: `Payment confirmed via ${paymentGateway} for ${normalizedService} (Flow: ${refStr}${providerPaymentId ? ', Gateway: ' + providerPaymentId : ''})`,
             metadata: {
                 quantity: Number(quantity) || 1,
                 serviceType: normalizedService,
-                paymentNumber: refStr
+                flow_payment_number: refStr,
+                provider_payment_id: providerPaymentId || null,
+                provider_order_id: providerOrderId || null
             }
         }]);
 
@@ -442,13 +450,18 @@ export default async function handler(req, res) {
     const rawAmount = paymentInfo.amount || webhookData.amount || payload.amount || 0;
     const paidAmount = rawAmount > 500 ? (rawAmount / 100) : rawAmount;
 
+    const providerPaymentId = webhookData.provider_payment_id || webhookData.gateway_payment_id || meta.provider_payment_id || paymentInfo.provider_payment_id;
+    const providerOrderId = webhookData.provider_order_id || webhookData.gateway_order_id || meta.provider_order_id || paymentInfo.provider_order_id;
+
     const creditResult = await recordPaymentAndCreditQuota({
         paymentNumber: paymentNumber,
         instCode: instCode,
         serviceType: serviceType,
         amount: paidAmount,
         quantity: quantity,
-        paymentGateway: 'Trim Key Flow'
+        paymentGateway: 'Trim Key Flow',
+        providerPaymentId: providerPaymentId,
+        providerOrderId: providerOrderId
     });
 
     return res.status(200).json({ success: true, message: "Webhook processed", ...creditResult });
@@ -1616,13 +1629,18 @@ export default async function handler(req, res) {
             const rawAmount = paymentInfo.amount || webhookData.amount || payload.amount || 0;
             const paidAmount = rawAmount > 500 ? (rawAmount / 100) : rawAmount;
 
+            const providerPaymentId = webhookData.provider_payment_id || webhookData.gateway_payment_id || meta.provider_payment_id || paymentInfo.provider_payment_id;
+            const providerOrderId = webhookData.provider_order_id || webhookData.gateway_order_id || meta.provider_order_id || paymentInfo.provider_order_id;
+
             await recordPaymentAndCreditQuota({
                 paymentNumber: paymentNumber,
                 instCode: instCode,
                 serviceType: serviceType,
                 amount: paidAmount,
                 quantity: quantity,
-                paymentGateway: 'Trim Key Flow'
+                paymentGateway: 'Trim Key Flow',
+                providerPaymentId: providerPaymentId,
+                providerOrderId: providerOrderId
             });
         }
         result = { success: true, message: "Webhook processed" };
@@ -1633,8 +1651,8 @@ export default async function handler(req, res) {
       // CLIENT-SIDE PAYMENT RECONCILIATION FALLBACK
       // ==========================================
       case "confirmFlowPayment": {
-        const { paymentNumber, instCode, serviceType, amount, quantity } = payload;
-        console.log("[Payment Gateway]: Recording client confirmed payment ->", paymentNumber, instCode, serviceType, amount);
+        const { paymentNumber, instCode, serviceType, amount, quantity, providerPaymentId, providerOrderId } = payload;
+        console.log("[Payment Gateway]: Recording client confirmed payment ->", paymentNumber, instCode, serviceType, amount, providerPaymentId);
 
         const creditResult = await recordPaymentAndCreditQuota({
             paymentNumber: paymentNumber,
@@ -1644,7 +1662,9 @@ export default async function handler(req, res) {
             serviceType: serviceType || 'Report Card',
             amount: Number(amount) || 0,
             quantity: Number(quantity) || 1,
-            paymentGateway: 'Trim Key Flow'
+            paymentGateway: 'Trim Key Flow',
+            providerPaymentId: providerPaymentId || null,
+            providerOrderId: providerOrderId || null
         });
 
         result = { 
