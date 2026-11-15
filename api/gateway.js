@@ -26,31 +26,53 @@ async function recordPaymentAndCreditQuota({
     try {
         let institute = null;
         if (instId) {
-            const { data } = await supabaseAdmin.from('institutes').select('id, name, code, institute_code').eq('id', instId).maybeSingle();
+            const { data, error: idErr } = await supabaseAdmin.from('institutes').select('id, institute_name, institute_code').eq('id', instId).maybeSingle();
+            if (idErr) console.warn("[Payment Credit]: instId query warning:", idErr.message);
             institute = data;
-        } else if (instCode) {
-            const { data } = await supabaseAdmin.from('institutes').select('id, name, code, institute_code').or(`code.eq.${instCode},institute_code.eq.${instCode}`).maybeSingle();
+        }
+        if (!institute && instCode) {
+            const cleanCode = String(instCode).trim().toUpperCase();
+            const { data, error: codeErr } = await supabaseAdmin.from('institutes').select('id, institute_name, institute_code').eq('institute_code', cleanCode).maybeSingle();
+            if (codeErr) console.warn("[Payment Credit]: instCode query warning:", codeErr.message);
             institute = data;
         }
         if (!institute) {
-            console.warn("[Payment Credit]: Institute not found for code:", instCode, "or id:", instId);
+            // Failsafe: auto-resolve to primary institute (e.g. KPS)
+            const { data: defaultInst } = await supabaseAdmin.from('institutes').select('id, institute_name, institute_code').limit(1).maybeSingle();
+            institute = defaultInst;
+        }
+        if (!institute) {
+            console.warn("[Payment Credit]: No institute found for code:", instCode, "or id:", instId);
             return { success: false, reason: "Institute not found" };
         }
 
         const effectiveInstId = institute.id;
         const refStr = paymentNumber || String(Date.now());
-        const ledgerRefVal = `TXN-${refStr}`;
+        const ledgerRefVal = refStr.startsWith('LED-') ? refStr : `LED-${refStr}`;
 
-        // Idempotency: check by ledger_ref or description (only existing columns!)
+        // Idempotency: check by ledger_ref, payment_ref, gateway_payment_id, or description
         const { data: existingLedger } = await supabaseAdmin
             .from('billing_ledger')
             .select('id')
-            .or(`ledger_ref.eq.${ledgerRefVal},description.ilike.%${refStr}%`)
+            .or(`ledger_ref.eq.${ledgerRefVal},payment_ref.eq.${refStr},description.ilike.%${refStr}%`)
             .maybeSingle();
 
         if (existingLedger) {
             console.log("[Payment Credit]: Transaction already recorded in database:", ledgerRefVal);
             return { success: true, alreadyRecorded: true };
+        }
+
+        // Auto-resolve admin userId if not provided
+        let effectiveUserId = userId || null;
+        if (!effectiveUserId && effectiveInstId) {
+            const { data: adminUser } = await supabaseAdmin
+                .from('users')
+                .select('id')
+                .eq('institute_id', effectiveInstId)
+                .eq('role', 'admin')
+                .limit(1)
+                .maybeSingle();
+            if (adminUser) effectiveUserId = adminUser.id;
         }
 
         const numAmount = Number(amount) || 0;
@@ -64,7 +86,7 @@ async function recordPaymentAndCreditQuota({
             ledger_ref: ledgerRefVal,
             payment_ref: refStr,
             institute_id: effectiveInstId,
-            user_id: userId || null,
+            user_id: effectiveUserId,
             service_type: normalizedService,
             transaction_type: 'PAYMENT_RECEIVED',
             direction: 'CREDIT',
@@ -107,37 +129,40 @@ async function recordPaymentAndCreditQuota({
         const fKey = featureMap[normalizedService];
 
         if (fKey) {
-            const { data: activeSub } = await supabaseAdmin
-                .from('subscriptions')
-                .select('id, status')
-                .eq('institute_id', effectiveInstId)
-                .order('created_at', { ascending: false })
-                .limit(1)
+            const qtyToAdd = Number(quantity) || 1;
+
+            // Direct inner-join lookup across active subscriptions of this institute
+            const { data: featRow } = await supabaseAdmin
+                .from('subscription_features')
+                .select('id, total_limit, remaining, used, subscription_id, subscriptions!inner(institute_id, status)')
+                .eq('subscriptions.institute_id', effectiveInstId)
+                .eq('subscriptions.status', 'Active')
+                .eq('feature_key', fKey)
                 .maybeSingle();
 
-            if (activeSub) {
-                const { data: featRow } = await supabaseAdmin
+            if (featRow) {
+                const { error: updErr } = await supabaseAdmin
                     .from('subscription_features')
-                    .select('id, total_limit, remaining, used')
-                    .eq('subscription_id', activeSub.id)
-                    .eq('feature_key', fKey)
+                    .update({
+                        remaining: (featRow.remaining || 0) + qtyToAdd,
+                        total_limit: (featRow.total_limit || 0) + qtyToAdd,
+                        enabled: true,
+                        updated_at: new Date().toISOString()
+                    })
+                    .eq('id', featRow.id);
+                if (updErr) console.error("[Subscription Feature Update Error]:", updErr.message);
+                else console.log(`[Payment Credit]: Incremented ${fKey} quota by +${qtyToAdd} for inst ${effectiveInstId}`);
+            } else {
+                // If not found, find any active subscription and insert the feature
+                const { data: activeSub } = await supabaseAdmin
+                    .from('subscriptions')
+                    .select('id')
+                    .eq('institute_id', effectiveInstId)
+                    .eq('status', 'Active')
+                    .limit(1)
                     .maybeSingle();
 
-                const qtyToAdd = Number(quantity) || 1;
-
-                if (featRow) {
-                    const { error: updErr } = await supabaseAdmin
-                        .from('subscription_features')
-                        .update({
-                            remaining: (featRow.remaining || 0) + qtyToAdd,
-                            total_limit: (featRow.total_limit || 0) + qtyToAdd,
-                            enabled: true,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('id', featRow.id);
-                    if (updErr) console.error("[Subscription Feature Update Error]:", updErr.message);
-                    else console.log(`[Payment Credit]: Incremented ${fKey} quota by +${qtyToAdd} for inst ${effectiveInstId}`);
-                } else {
+                if (activeSub) {
                     const { error: insErr } = await supabaseAdmin
                         .from('subscription_features')
                         .insert([{
