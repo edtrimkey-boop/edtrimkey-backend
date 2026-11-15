@@ -36,46 +36,42 @@ async function recordPaymentAndCreditQuota({
         }
 
         const effectiveInstId = institute.id;
+        const refStr = paymentNumber || String(Date.now());
+        const ledgerRefVal = `TXN-${refStr}`;
 
-        // Idempotency: avoid double-logging
-        if (paymentNumber) {
-            const { data: existingLedger } = await supabaseAdmin
-                .from('billing_ledger')
-                .select('id')
-                .or(`payment_ref.eq.${paymentNumber},gateway_payment_id.eq.${paymentNumber}`)
-                .maybeSingle();
+        // Idempotency: check by ledger_ref or description (only existing columns!)
+        const { data: existingLedger } = await supabaseAdmin
+            .from('billing_ledger')
+            .select('id')
+            .or(`ledger_ref.eq.${ledgerRefVal},description.ilike.%${refStr}%`)
+            .maybeSingle();
 
-            if (existingLedger) {
-                console.log("[Payment Credit]: Transaction already recorded in ledger:", paymentNumber);
-                return { success: true, alreadyRecorded: true };
-            }
+        if (existingLedger) {
+            console.log("[Payment Credit]: Transaction already recorded in database:", ledgerRefVal);
+            return { success: true, alreadyRecorded: true };
         }
 
         const numAmount = Number(amount) || 0;
-        const normalizedService = serviceType || 'Recharge';
+        const normalizedService = serviceType || 'Report Card';
 
-        // Insert into billing_ledger
+        // Insert into billing_ledger using strictly valid database columns
         const { error: ledgerErr } = await supabaseAdmin.from('billing_ledger').insert([{
-            ledger_ref: 'TXN-' + Date.now(),
-            payment_ref: paymentNumber || ('FLOW-' + Date.now()),
+            ledger_ref: ledgerRefVal,
             institute_id: effectiveInstId,
             user_id: userId || null,
             service_type: normalizedService,
             transaction_type: 'PAYMENT_RECEIVED',
             direction: 'CREDIT',
             amount: numAmount,
-            currency: 'INR',
             status: 'POSTED',
             payment_method: 'Online',
-            payment_gateway: paymentGateway,
-            gateway_payment_id: paymentNumber || null,
-            description: `Payment confirmed via ${paymentGateway} for ${normalizedService}`
+            description: `Payment confirmed via ${paymentGateway} for ${normalizedService} (Ref: ${refStr})`
         }]);
 
         if (ledgerErr) {
-            console.error("[Payment Credit]: Failed to insert into billing_ledger:", ledgerErr);
+            console.error("[Payment Credit]: Database error inserting to billing_ledger:", ledgerErr.message);
         } else {
-            console.log(`[Payment Credit]: Successfully posted ₹${numAmount} to billing_ledger for ${institute.name || institute.code}`);
+            console.log(`[Payment Credit]: Successfully committed ₹${numAmount} to billing_ledger database!`);
         }
 
         // Map feature key and update / insert subscription_features
@@ -111,7 +107,7 @@ async function recordPaymentAndCreditQuota({
                 const qtyToAdd = Number(quantity) || 1;
 
                 if (featRow) {
-                    await supabaseAdmin
+                    const { error: updErr } = await supabaseAdmin
                         .from('subscription_features')
                         .update({
                             remaining: (featRow.remaining || 0) + qtyToAdd,
@@ -119,9 +115,10 @@ async function recordPaymentAndCreditQuota({
                             enabled: true
                         })
                         .eq('id', featRow.id);
-                    console.log(`[Payment Credit]: Incremented ${fKey} quota by +${qtyToAdd} for inst ${effectiveInstId}`);
+                    if (updErr) console.error("[Subscription Feature Update Error]:", updErr.message);
+                    else console.log(`[Payment Credit]: Incremented ${fKey} quota by +${qtyToAdd} for inst ${effectiveInstId}`);
                 } else {
-                    await supabaseAdmin
+                    const { error: insErr } = await supabaseAdmin
                         .from('subscription_features')
                         .insert([{
                             subscription_id: activeSub.id,
@@ -131,7 +128,8 @@ async function recordPaymentAndCreditQuota({
                             remaining: qtyToAdd,
                             used: 0
                         }]);
-                    console.log(`[Payment Credit]: Created new ${fKey} quota with ${qtyToAdd} for inst ${effectiveInstId}`);
+                    if (insErr) console.error("[Subscription Feature Insert Error]:", insErr.message);
+                    else console.log(`[Payment Credit]: Created new ${fKey} quota with ${qtyToAdd} for inst ${effectiveInstId}`);
                 }
             }
         }
@@ -146,7 +144,7 @@ async function recordPaymentAndCreditQuota({
 
         return { success: true };
     } catch (err) {
-        console.error("[Payment Credit Critical Error]:", err);
+        console.error("[Payment Credit Critical Error]:", err.message);
         return { success: false, error: err.message };
     }
 }
@@ -661,7 +659,7 @@ export default async function handler(req, res) {
                 if (listJson.success && Array.isArray(listJson.data)) {
                     for (const pay of listJson.data) {
                         if (pay.status === 'SUCCESS' || pay.status === 'success') {
-                            const isRecorded = (billingRes.data || []).some(b => b.payment_ref === pay.payment_number || b.gateway_payment_id === pay.payment_number);
+                            const isRecorded = (billingRes.data || []).some(b => b.ledger_ref === `TXN-${pay.payment_number}` || (b.description && b.description.includes(pay.payment_number)));
                             if (!isRecorded) {
                                 console.log("[Auto-Reconciliation]: Crediting unrecorded Flow payment:", pay.payment_number);
                                 const serviceType = pay.purpose?.includes('Report') ? 'Report Card' : (pay.purpose || 'Report Card');
@@ -1643,71 +1641,27 @@ export default async function handler(req, res) {
       // TRIM KEY FLOW WEBHOOK HANDLER
       // ==========================================
       case "flowWebhook": {
-        const webhookData = req.body;
+        const webhookData = req.body || {};
         console.log("[Trim Key Flow Webhook]: Event received", webhookData?.event || webhookData?.action);
 
         if (webhookData?.event === "payment.success" || webhookData?.status === "SUCCESS") {
-            const paymentInfo = webhookData.payment || webhookData.data || {};
-            const meta = webhookData.metadata || webhookData.order?.metadata || {};
-            const paymentNumber = paymentInfo.payment_number || paymentInfo.id;
-            const instCode = meta.instCode;
-            const serviceType = meta.serviceType || "App Subscriptions";
-            const quantity = Number(meta.quantity) || 1;
-            const paidAmount = paymentInfo.amount ? (Number(paymentInfo.amount) / 100) : Number(payload.amount || 0);
+            const paymentInfo = webhookData.payment || webhookData.data || webhookData;
+            const meta = webhookData.metadata || webhookData.order?.metadata || paymentInfo.metadata || {};
+            const paymentNumber = paymentInfo.payment_number || paymentInfo.id || webhookData.id;
+            const instCode = meta.instCode || payload.instCode;
+            const serviceType = meta.serviceType || payload.serviceType || "Report Card";
+            const quantity = Number(meta.quantity || payload.quantity) || 1;
+            const rawAmount = paymentInfo.amount || webhookData.amount || payload.amount || 0;
+            const paidAmount = rawAmount > 500 ? (rawAmount / 100) : rawAmount;
 
-            if (instCode) {
-                const { data: inst } = await supabaseAdmin.from('institutes').select('id, name').eq('code', instCode).maybeSingle();
-                if (inst) {
-                    // 1. Post to billing_ledger
-                    await supabaseAdmin.from('billing_ledger').insert([{
-                        ledger_ref: 'TXN-' + Date.now(),
-                        payment_ref: paymentNumber,
-                        institute_id: inst.id,
-                        service_type: serviceType,
-                        transaction_type: 'PAYMENT_RECEIVED',
-                        direction: 'CREDIT',
-                        amount: paidAmount,
-                        currency: 'INR',
-                        status: 'POSTED',
-                        payment_method: 'Online',
-                        payment_gateway: 'Trim Key Flow',
-                        gateway_payment_id: paymentNumber,
-                        description: `Payment confirmed via Trim Key Flow for ${serviceType}`
-                    }]);
-
-                    // 2. Increment quotas if service is Paper/Doc related
-                    const featureMap = {
-                        'MCQ Paper': 'paper_formatter',
-                        'Math Paper': 'math_paper',
-                        'Report Card': 'report_card',
-                        'Admit Card': 'admit_card'
-                    };
-                    const fKey = featureMap[serviceType] || 'paper_formatter';
-
-                    const { data: featRow } = await supabaseAdmin
-                        .from('subscription_features')
-                        .select('id, remaining, subscriptions!inner(institute_id, status)')
-                        .eq('subscriptions.institute_id', inst.id)
-                        .eq('subscriptions.status', 'Active')
-                        .eq('feature_key', fKey)
-                        .maybeSingle();
-
-                    if (featRow) {
-                        await supabaseAdmin
-                            .from('subscription_features')
-                            .update({ remaining: (featRow.remaining || 0) + quantity })
-                            .eq('id', featRow.id);
-                    }
-
-                    // 3. If registration payment, mark subscription Active & Paid
-                    if (serviceType.includes('Registration') || serviceType.includes('Subscription')) {
-                        await supabaseAdmin
-                            .from('subscriptions')
-                            .update({ payment_status: 'Paid', status: 'Active' })
-                            .eq('institute_id', inst.id);
-                    }
-                }
-            }
+            await recordPaymentAndCreditQuota({
+                paymentNumber: paymentNumber,
+                instCode: instCode,
+                serviceType: serviceType,
+                amount: paidAmount,
+                quantity: quantity,
+                paymentGateway: 'Trim Key Flow'
+            });
         }
         result = { success: true, message: "Webhook processed" };
         break;
