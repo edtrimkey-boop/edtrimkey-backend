@@ -470,13 +470,18 @@ export default async function handler(req, res) {
   try {
     let result = {};
     let userContext = null;
-    const publicActions = ["login", "submitInstituteRegistration", "flowWebhook"];
+    const publicActions = ["login", "submitInstituteRegistration", "flowWebhook", "confirmFlowPayment"];
     
     // 2. JWT SECURITY WRAPPER
     if (!publicActions.includes(action)) {
        const { data: { user }, error } = await supabase.auth.getUser(token);
        if (error || !user) return res.status(200).json({ authFailed: true, message: "Session expired or invalid." });
        userContext = user;
+    } else if (token) {
+       try {
+         const { data: { user } } = await supabase.auth.getUser(token);
+         if (user) userContext = user;
+       } catch (e) {}
     }
 
 
@@ -1573,7 +1578,8 @@ export default async function handler(req, res) {
                 instCode: instCode,
                 serviceType: type,
                 quantity: quantity || 1,
-                userId: userContext?.id
+                userId: userContext?.id,
+                webhook_url: "https://backend-ed.trimkey.in/api/gateway"
             }
         };
 
