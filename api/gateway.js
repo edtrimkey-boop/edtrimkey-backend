@@ -9,6 +9,148 @@ import nodemailer from 'nodemailer';
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 // ── Trim Key Flow Helper ─────────────────────────────────────────────────────
+
+// ── Master Payment Recording & Quota Credit Engine ───────────────────────────
+async function recordPaymentAndCreditQuota({
+    paymentNumber,
+    instCode,
+    instId,
+    userId,
+    serviceType,
+    amount,
+    quantity,
+    paymentGateway = 'Trim Key Flow'
+}) {
+    try {
+        let institute = null;
+        if (instId) {
+            const { data } = await supabaseAdmin.from('institutes').select('id, name, code, institute_code').eq('id', instId).maybeSingle();
+            institute = data;
+        } else if (instCode) {
+            const { data } = await supabaseAdmin.from('institutes').select('id, name, code, institute_code').or(`code.eq.${instCode},institute_code.eq.${instCode}`).maybeSingle();
+            institute = data;
+        }
+        if (!institute) {
+            console.warn("[Payment Credit]: Institute not found for code:", instCode, "or id:", instId);
+            return { success: false, reason: "Institute not found" };
+        }
+
+        const effectiveInstId = institute.id;
+
+        // Idempotency: avoid double-logging
+        if (paymentNumber) {
+            const { data: existingLedger } = await supabaseAdmin
+                .from('billing_ledger')
+                .select('id')
+                .or(`payment_ref.eq.${paymentNumber},gateway_payment_id.eq.${paymentNumber}`)
+                .maybeSingle();
+
+            if (existingLedger) {
+                console.log("[Payment Credit]: Transaction already recorded in ledger:", paymentNumber);
+                return { success: true, alreadyRecorded: true };
+            }
+        }
+
+        const numAmount = Number(amount) || 0;
+        const normalizedService = serviceType || 'Recharge';
+
+        // Insert into billing_ledger
+        const { error: ledgerErr } = await supabaseAdmin.from('billing_ledger').insert([{
+            ledger_ref: 'TXN-' + Date.now(),
+            payment_ref: paymentNumber || ('FLOW-' + Date.now()),
+            institute_id: effectiveInstId,
+            user_id: userId || null,
+            service_type: normalizedService,
+            transaction_type: 'PAYMENT_RECEIVED',
+            direction: 'CREDIT',
+            amount: numAmount,
+            currency: 'INR',
+            status: 'POSTED',
+            payment_method: 'Online',
+            payment_gateway: paymentGateway,
+            gateway_payment_id: paymentNumber || null,
+            description: `Payment confirmed via ${paymentGateway} for ${normalizedService}`
+        }]);
+
+        if (ledgerErr) {
+            console.error("[Payment Credit]: Failed to insert into billing_ledger:", ledgerErr);
+        } else {
+            console.log(`[Payment Credit]: Successfully posted ₹${numAmount} to billing_ledger for ${institute.name || institute.code}`);
+        }
+
+        // Map feature key and update / insert subscription_features
+        const featureMap = {
+            'MCQ Paper': 'paper_formatter',
+            'Math Paper': 'paper_formatter',
+            'Report Card': 'report_cards',
+            'Report Cards': 'report_cards',
+            'Admit Card': 'admit_cards',
+            'Admit Cards': 'admit_cards',
+            'SMS Cost': 'sms',
+            'SMS Top-up': 'sms'
+        };
+        const fKey = featureMap[normalizedService];
+
+        if (fKey) {
+            const { data: activeSub } = await supabaseAdmin
+                .from('subscriptions')
+                .select('id, status')
+                .eq('institute_id', effectiveInstId)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (activeSub) {
+                const { data: featRow } = await supabaseAdmin
+                    .from('subscription_features')
+                    .select('id, total_limit, remaining, used')
+                    .eq('subscription_id', activeSub.id)
+                    .eq('feature_key', fKey)
+                    .maybeSingle();
+
+                const qtyToAdd = Number(quantity) || 1;
+
+                if (featRow) {
+                    await supabaseAdmin
+                        .from('subscription_features')
+                        .update({
+                            remaining: (featRow.remaining || 0) + qtyToAdd,
+                            total_limit: (featRow.total_limit || 0) + qtyToAdd,
+                            enabled: true
+                        })
+                        .eq('id', featRow.id);
+                    console.log(`[Payment Credit]: Incremented ${fKey} quota by +${qtyToAdd} for inst ${effectiveInstId}`);
+                } else {
+                    await supabaseAdmin
+                        .from('subscription_features')
+                        .insert([{
+                            subscription_id: activeSub.id,
+                            feature_key: fKey,
+                            enabled: true,
+                            total_limit: qtyToAdd,
+                            remaining: qtyToAdd,
+                            used: 0
+                        }]);
+                    console.log(`[Payment Credit]: Created new ${fKey} quota with ${qtyToAdd} for inst ${effectiveInstId}`);
+                }
+            }
+        }
+
+        // If registration or initial setup, activate subscription
+        if (String(normalizedService).includes('Registration') || String(normalizedService).includes('Subscription')) {
+            await supabaseAdmin
+                .from('subscriptions')
+                .update({ payment_status: 'Paid', status: 'Active' })
+                .eq('institute_id', effectiveInstId);
+        }
+
+        return { success: true };
+    } catch (err) {
+        console.error("[Payment Credit Critical Error]:", err);
+        return { success: false, error: err.message };
+    }
+}
+
 let cachedFlowMerchantId = null;
 
 async function resolveFlowMerchantId(flowApiUrl, flowApiKey) {
@@ -267,6 +409,38 @@ export default async function handler(req, res) {
 
   // 🔥 ADDED SAFEGUARD: "|| {}" prevents the server from crashing if req.body is missing
   const { action, email, password, token, ...payload } = req.body || {};
+
+  // ── Trim Key Flow Direct Webhook Handler ───────────────────────────────────
+  const isFlowWebhook = (
+    action === 'flowWebhook' || 
+    req.body?.event === 'payment.success' || 
+    req.headers['x-trim-key-flow-event'] === 'payment.success'
+  );
+
+  if (isFlowWebhook) {
+    const webhookData = req.body || {};
+    console.log("[Trim Key Flow Webhook]: Received event ->", webhookData.event || 'payment.success');
+
+    const paymentInfo = webhookData.payment || webhookData.data || webhookData;
+    const meta = webhookData.metadata || webhookData.order?.metadata || paymentInfo.metadata || {};
+    const paymentNumber = paymentInfo.payment_number || paymentInfo.id || webhookData.id;
+    const instCode = meta.instCode || payload.instCode;
+    const serviceType = meta.serviceType || payload.serviceType || "Recharge";
+    const quantity = Number(meta.quantity || payload.quantity) || 1;
+    const rawAmount = paymentInfo.amount || webhookData.amount || payload.amount || 0;
+    const paidAmount = rawAmount > 500 ? (rawAmount / 100) : rawAmount;
+
+    const creditResult = await recordPaymentAndCreditQuota({
+        paymentNumber: paymentNumber,
+        instCode: instCode,
+        serviceType: serviceType,
+        amount: paidAmount,
+        quantity: quantity,
+        paymentGateway: 'Trim Key Flow'
+    });
+
+    return res.status(200).json({ success: true, message: "Webhook processed", ...creditResult });
+  }
   
   try {
     let result = {};
@@ -510,7 +684,15 @@ export default async function handler(req, res) {
             docs: safeJobs.filter(j => j.job_type !== 'Paper').map(j => ({ 
                 id: j.job_code, date: j.created_at, inst: instMap[j.institute_id] || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '', latestCorrectionNote: j.meta_data?.latest_correction_note || ''
             })),
-            myBilling: [], instTeachers: [], instStudents: []
+            myBilling: (billingRes.data || []).map(b => ({
+                id: b.ledger_ref || b.id,
+                date: b.created_at,
+                type: b.transaction_type === 'PAYMENT_RECEIVED' ? 'Recharge' : (b.transaction_type || 'Recharge'),
+                service: b.service_type || 'Recharge',
+                amount: Number(b.amount) || 0,
+                status: b.status === 'POSTED' ? 'PAID' : (b.status || 'Pending'),
+                ref: b.payment_ref || b.gateway_payment_id || b.ledger_ref
+            })), instTeachers: [], instStudents: []
           },
           notifications: safeNotifs.map(n => ({ 
               title: n.title, 
@@ -1477,12 +1659,64 @@ export default async function handler(req, res) {
       // CLIENT-SIDE PAYMENT RECONCILIATION FALLBACK
       // ==========================================
       case "confirmFlowPayment": {
-        const { paymentNumber, instCode } = payload;
-        result = { success: true, message: "Payment verified by Flow" };
+        const { paymentNumber, instCode, serviceType, amount, quantity } = payload;
+        console.log("[Trim Key Flow]: Reconciling client payment ->", paymentNumber, instCode, serviceType, amount);
+
+        let finalServiceType = serviceType || 'Report Card';
+        let finalAmount = Number(amount) || 0;
+        let finalQty = Number(quantity) || 1;
+        let resolvedInstCode = instCode || userContext?.user_metadata?.institute_code;
+
+        // Verify with Flow API if API key is present
+        const flowApiKey = process.env.FLOW_API_KEY;
+        const flowApiUrl = process.env.FLOW_API_URL || "https://flow.trimkey.in/api/v1";
+
+        if (flowApiKey && paymentNumber) {
+            try {
+                const getPayRes = await fetch(flowApiUrl, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${flowApiKey}`
+                    },
+                    body: JSON.stringify({
+                        action: "payment.get",
+                        data: { payment_id: paymentNumber }
+                    })
+                });
+                const getPayJson = await getPayRes.json();
+                if (getPayJson.success && getPayJson.data) {
+                    const payData = getPayJson.data;
+                    if (payData.amount) finalAmount = Number(payData.amount) / 100;
+                    if (payData.metadata?.serviceType) finalServiceType = payData.metadata.serviceType;
+                    if (payData.metadata?.quantity) finalQty = Number(payData.metadata.quantity);
+                    if (payData.metadata?.instCode) resolvedInstCode = payData.metadata.instCode;
+                }
+            } catch (flowErr) {
+                console.warn("[Trim Key Flow]: Flow API payment.get verification error:", flowErr.message);
+            }
+        }
+
+        const creditResult = await recordPaymentAndCreditQuota({
+            paymentNumber: paymentNumber,
+            instCode: resolvedInstCode,
+            instId: userContext?.user_metadata?.institute_id,
+            userId: userContext?.id,
+            serviceType: finalServiceType,
+            amount: finalAmount,
+            quantity: finalQty,
+            paymentGateway: 'Trim Key Flow'
+        });
+
+        result = { 
+            success: true, 
+            message: "Payment verified and quota credited successfully!",
+            ...creditResult 
+        };
         break;
       }
 
-     // ==========================================
+      // ==========================================
       // MANUAL SYSTEM BROADCASTS & FCM PUSH
       // ==========================================
       case "sendNotification": {
