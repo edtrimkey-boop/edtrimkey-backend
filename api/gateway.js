@@ -62,8 +62,16 @@ async function recordPaymentAndCreditQuota({
             return { success: true, alreadyRecorded: true };
         }
 
-        // Auto-resolve admin userId if not provided
-        let effectiveUserId = userId || null;
+        // Safely resolve public users.id (must match public.users.id FK constraint)
+        let effectiveUserId = null;
+        if (userId) {
+            const { data: resolvedUser } = await supabaseAdmin
+                .from('users')
+                .select('id')
+                .or(`id.eq.${userId},auth_user_id.eq.${userId}`)
+                .maybeSingle();
+            if (resolvedUser) effectiveUserId = resolvedUser.id;
+        }
         if (!effectiveUserId && effectiveInstId) {
             const { data: adminUser } = await supabaseAdmin
                 .from('users')
