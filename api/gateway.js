@@ -1705,6 +1705,56 @@ export default async function handler(req, res) {
         break;
       }
 
+// When action === 'createPaymentLink'
+if (action === 'createPaymentLink') {
+    const { instCode, type, amount, email, name, phone, quantity } = req.body;
+
+    // 1. Request a payment session from Trim Key Flow
+    const flowResponse = await fetch(process.env.FLOW_API_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.FLOW_API_KEY}`
+        },
+        body: JSON.stringify({
+            action: "payment.create",
+            data: {
+                merchant_id: process.env.FLOW_MERCHANT_ID,
+                amount: Math.round(Number(amount) * 100), // Trim Key Flow expects amount in paise
+                currency: "INR",
+                purpose: `${type} Recharge - ${instCode}`,
+                customer: {
+                    name: name || "Institute Admin",
+                    email: email,
+                    phone: phone || "9999999999"
+                },
+                metadata: {
+                    instCode: instCode,
+                    type: type,
+                    quantity: quantity || 1
+                }
+            }
+        })
+    });
+
+    const flowData = await flowResponse.json();
+
+    if (!flowData.success) {
+        return res.status(400).json({ 
+            success: false, 
+            message: flowData.error?.message || "Failed to create Flow session" 
+        });
+    }
+
+    // 2. Return checkout_url and payment_number to Ed-Trim Key frontend
+    return res.json({
+        success: true,
+        checkout_url: flowData.data.checkout_url,
+        refId: flowData.data.payment_number,
+        amount: amount
+    });
+}
+            
 
       case "addJobTimelineEvent": {
         const { data: currentJob } = await supabase.from('jobs_queue').select('meta_data, status, requester_id, operator_id, institute_id').eq('job_code', payload.jobId).single();
