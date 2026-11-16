@@ -73,6 +73,15 @@ serverCall('confirmFlowPayment', {
 ```
 * **Idempotency Guarantee:** Whether the webhook arrives first or the client confirmation arrives first, `recordPaymentAndCreditQuota` ensures the transaction is committed exactly once.
 
+### 3.3. Customer Profile Auto-Query & Gateway Prefill (`createPaymentLink`)
+When initiating a recharge or payment link, EdTrimKey backend queries the database so that payment gateways (Razorpay, etc.) automatically prefill the user's name, email, and mobile phone:
+1. **User Identity Resolution:** Queries `public.users` using:
+   - `userContext.id` (checking `id` or `auth_user_id`)
+   - `email` fallback
+   - `institute_code` fallback (`institutes.admin_email` -> `users`)
+2. **Phone Normalization:** Strips non-digits, checks for Indian 10-digit mobile pattern (`/^[6-9]\d{9}$/`), and handles leading `+91` or `0`.
+3. **Payload Construction:** Sends resolved `customer: { name, email, phone }` to Trim Key Flow, ensuring checkout forms pre-populate without manual data entry.
+
 ---
 
 ## 4. `recordPaymentAndCreditQuota` Engine Details

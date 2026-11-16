@@ -1579,19 +1579,71 @@ export default async function handler(req, res) {
             break;
         }
 
-        // Build customer profile with strict Indian phone normalization
-        const customer = {
-            name: name || userContext?.user_metadata?.name || "Institute Admin",
-            email: email || userContext?.email || "admin@trimkey.in"
-        };
+        // 🔍 Auto-Query user and institute details from database to pre-fill customer fields
+        let dbUser = null;
+        const userLookupId = userContext?.id;
+        if (userLookupId) {
+            try {
+                const { data: u } = await supabaseAdmin
+                    .from('users')
+                    .select('id, full_name, email, phone_number, institute_id')
+                    .or(`id.eq.${userLookupId},auth_user_id.eq.${userLookupId}`)
+                    .maybeSingle();
+                if (u) dbUser = u;
+            } catch (err) {
+                console.warn("[createPaymentLink]: User query error:", err.message);
+            }
+        }
 
-        // Normalize phone: must be exactly 10 digits starting with [6-9]
-        let rawPhone = String(phone || userContext?.user_metadata?.phone || userContext?.phone || "").replace(/\D/g, "");
+        const lookupEmail = email || userContext?.email;
+        if (!dbUser && lookupEmail) {
+            try {
+                const { data: u } = await supabaseAdmin
+                    .from('users')
+                    .select('id, full_name, email, phone_number, institute_id')
+                    .eq('email', lookupEmail)
+                    .maybeSingle();
+                if (u) dbUser = u;
+            } catch (err) {
+                console.warn("[createPaymentLink]: User query by email error:", err.message);
+            }
+        }
+
+        if (!dbUser && instCode) {
+            try {
+                const cleanCode = String(instCode).trim().toUpperCase();
+                const { data: inst } = await supabaseAdmin
+                    .from('institutes')
+                    .select('id, admin_email')
+                    .eq('institute_code', cleanCode)
+                    .maybeSingle();
+                if (inst?.admin_email) {
+                    const { data: adminU } = await supabaseAdmin
+                        .from('users')
+                        .select('id, full_name, email, phone_number, institute_id')
+                        .eq('email', inst.admin_email)
+                        .maybeSingle();
+                    if (adminU) dbUser = adminU;
+                }
+            } catch (err) {
+                console.warn("[createPaymentLink]: User query by institute code error:", err.message);
+            }
+        }
+
+        const resolvedName = (name && name !== 'Institute Admin') ? name : (dbUser?.full_name || name || userContext?.user_metadata?.name || userContext?.user_metadata?.full_name || "Institute Admin");
+        const resolvedEmail = (email && email !== 'admin@trimkey.in') ? email : (dbUser?.email || email || userContext?.email || "admin@trimkey.in");
+        let rawPhone = String(phone || dbUser?.phone_number || userContext?.user_metadata?.phone || userContext?.phone || "").replace(/\D/g, "");
         if (rawPhone.length > 10 && rawPhone.startsWith("91")) {
             rawPhone = rawPhone.slice(-10);
         } else if (rawPhone.length > 10 && rawPhone.startsWith("0")) {
             rawPhone = rawPhone.slice(-10);
         }
+
+        // Build customer profile with strict Indian phone normalization
+        const customer = {
+            name: resolvedName,
+            email: resolvedEmail
+        };
 
         if (/^[6-9]\d{9}$/.test(rawPhone)) {
             customer.phone = rawPhone;
@@ -1611,7 +1663,10 @@ export default async function handler(req, res) {
                 instCode: instCode,
                 serviceType: type,
                 quantity: quantity || 1,
-                userId: userContext?.id,
+                userId: userContext?.id || dbUser?.id,
+                customer_name: resolvedName,
+                customer_email: resolvedEmail,
+                customer_phone: customer.phone || rawPhone || '',
                 webhook_url: "https://backend-ed.trimkey.in/api/gateway"
             }
         };
