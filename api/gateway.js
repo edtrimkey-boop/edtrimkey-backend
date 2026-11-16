@@ -59,7 +59,7 @@ async function recordPaymentAndCreditQuota({
 
         if (existingLedger) {
             console.log("[Payment Credit]: Transaction already recorded in database:", ledgerRefVal);
-            return { success: true, alreadyRecorded: true };
+            return { success: true, alreadyRecorded: true, ledgerRef: ledgerRefVal };
         }
 
         // Safely resolve public users.id (must match public.users.id FK constraint)
@@ -197,7 +197,7 @@ async function recordPaymentAndCreditQuota({
                 .eq('institute_id', effectiveInstId);
         }
 
-        return { success: true };
+        return { success: true, ledgerRef: ledgerRefVal };
     } catch (err) {
         console.error("[Payment Credit Critical Error]:", err.message);
         return { success: false, error: err.message };
@@ -752,15 +752,34 @@ export default async function handler(req, res) {
             docs: safeJobs.filter(j => j.job_type !== 'Paper').map(j => ({ 
                 id: j.job_code, date: j.created_at, inst: instMap[j.institute_id] || userData.institutes?.institute_name || 'Unknown', class: j.meta_data?.class || '', type: j.job_type, exam: j.meta_data?.exam_name || '', students: j.meta_data?.num_students || 0, deadline: j.deadline || 'No Deadline', status: j.status, row: j.final_file_url || j.raw_file_url || '', latestCorrectionNote: j.meta_data?.latest_correction_note || ''
             })),
-            myBilling: (billingRes.data || []).map(b => ({
-                id: b.ledger_ref || b.id,
-                date: b.created_at,
-                type: b.transaction_type === 'PAYMENT_RECEIVED' ? 'Recharge' : (b.transaction_type || 'Recharge'),
-                service: b.service_type || 'Recharge',
-                amount: Number(b.amount) || 0,
-                status: b.status === 'POSTED' ? 'PAID' : (b.status || 'Pending'),
-                ref: b.payment_ref || b.gateway_payment_id || b.ledger_ref
-            })), instTeachers: [], instStudents: []
+            myBilling: (billingRes.data || []).map(b => {
+                const qty = Number(b.metadata?.quantity) || 1;
+                const amt = Number(b.amount) || 0;
+                const unitPrice = qty > 0 ? (amt / qty).toFixed(2) : amt.toFixed(2);
+                return {
+                    id: b.ledger_ref || b.id,
+                    ledId: b.ledger_ref || b.id,
+                    date: b.created_at,
+                    type: b.transaction_type === 'PAYMENT_RECEIVED' ? 'Recharge' : (b.transaction_type || 'Recharge'),
+                    service: b.service_type || 'Recharge',
+                    amount: amt,
+                    quantity: qty,
+                    unitPrice: Number(unitPrice),
+                    status: b.status === 'POSTED' ? 'PAID' : (b.status || 'Pending'),
+                    ref: b.payment_ref || b.gateway_payment_id || b.ledger_ref,
+                    gatewayPaymentId: b.gateway_payment_id || b.reference_id || '',
+                    gatewayOrderId: b.gateway_order_id || b.metadata?.provider_order_id || '',
+                    paymentGateway: b.payment_gateway || 'Trim Key Flow',
+                    paymentMethod: b.payment_method || 'ONLINE',
+                    description: b.description || '',
+                    customerName: b.metadata?.customer_name || userData.full_name || 'Institute Admin',
+                    customerEmail: b.metadata?.customer_email || userData.email || '',
+                    customerPhone: b.metadata?.customer_phone || userData.phone_number || '',
+                    instName: userData.institutes?.institute_name || '',
+                    instCode: userData.institutes?.institute_code || '',
+                    metadata: b.metadata || {}
+                };
+            }), instTeachers: [], instStudents: []
           },
           notifications: safeNotifs.map(n => ({ 
               title: n.title, 
@@ -1764,7 +1783,76 @@ export default async function handler(req, res) {
         result = { 
             success: true, 
             message: "Payment recorded in database and quota updated successfully.",
+            ledgerRef: creditResult.ledgerRef || `LED-${paymentNumber}`,
             ...creditResult 
+        };
+        break;
+      }
+
+      // ==========================================
+      // BILLING RECEIPT FETCHER
+      // ==========================================
+      case "getBillingReceipt": {
+        const { ledId } = payload;
+        if (!ledId) throw new Error("Missing ledId.");
+        const { data: b, error: bErr } = await supabaseAdmin
+            .from('billing_ledger')
+            .select('*')
+            .or(`ledger_ref.eq.${ledId},id.eq.${ledId},payment_ref.eq.${ledId}`)
+            .maybeSingle();
+        if (bErr || !b) throw new Error("Receipt not found for reference: " + ledId);
+
+        const qty = Number(b.metadata?.quantity) || 1;
+        const amt = Number(b.amount) || 0;
+        const unitPrice = qty > 0 ? (amt / qty).toFixed(2) : amt.toFixed(2);
+
+        // Fetch associated user and institute if available
+        let uName = b.metadata?.customer_name || 'Institute Admin';
+        let uEmail = b.metadata?.customer_email || '';
+        let uPhone = b.metadata?.customer_phone || '';
+        if (b.user_id) {
+            const { data: u } = await supabaseAdmin.from('users').select('full_name, email, phone_number').eq('id', b.user_id).maybeSingle();
+            if (u) {
+                if (!b.metadata?.customer_name) uName = u.full_name;
+                if (!b.metadata?.customer_email) uEmail = u.email;
+                if (!b.metadata?.customer_phone) uPhone = u.phone_number;
+            }
+        }
+        let instName = '';
+        let instCode = '';
+        if (b.institute_id) {
+            const { data: inst } = await supabaseAdmin.from('institutes').select('institute_name, institute_code').eq('id', b.institute_id).maybeSingle();
+            if (inst) {
+                instName = inst.institute_name;
+                instCode = inst.institute_code;
+            }
+        }
+
+        result = {
+            success: true,
+            receipt: {
+                id: b.ledger_ref || b.id,
+                ledId: b.ledger_ref || b.id,
+                date: b.created_at,
+                type: b.transaction_type === 'PAYMENT_RECEIVED' ? 'Recharge' : (b.transaction_type || 'Recharge'),
+                service: b.service_type || 'Recharge',
+                amount: amt,
+                quantity: qty,
+                unitPrice: Number(unitPrice),
+                status: b.status === 'POSTED' ? 'PAID' : (b.status || 'Pending'),
+                ref: b.payment_ref || b.gateway_payment_id || b.ledger_ref,
+                gatewayPaymentId: b.gateway_payment_id || b.reference_id || '',
+                gatewayOrderId: b.gateway_order_id || b.metadata?.provider_order_id || '',
+                paymentGateway: b.payment_gateway || 'Trim Key Flow',
+                paymentMethod: b.payment_method || 'ONLINE',
+                description: b.description || '',
+                customerName: uName,
+                customerEmail: uEmail,
+                customerPhone: uPhone,
+                instName: instName,
+                instCode: instCode,
+                metadata: b.metadata || {}
+            }
         };
         break;
       }

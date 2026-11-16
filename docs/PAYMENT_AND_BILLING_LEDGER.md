@@ -147,6 +147,17 @@ The engine locates the active subscription for the institute and increments:
 * `remaining = remaining + quantity`
 If no feature record exists for this subscription, a new row is initialized.
 
+### 4.5. `myBilling` Mapping & Receipt Retrieval Engine (`getBillingReceipt`)
+To power the frontend's official PDF receipt and redesigned Activity Ledger:
+* **Rich Metadata Mapping:** `myBilling` in `initDashboard` transforms `billing_ledger` rows with:
+  - `ledId`: Immutable ledger reference (`LED-TKF-PAY-...`)
+  - `quantity`: Quantity of service units purchased
+  - `unitPrice`: Calculated per-unit price (`amount / quantity`)
+  - `customerName`, `customerEmail`, `customerPhone`: Billed customer details
+  - `instName`, `instCode`: Institute details
+  - `gatewayPaymentId`, `gatewayOrderId`: Gateway references
+* **Dedicated API Action (`getBillingReceipt`):** Allows instant query of any historical receipt by `ledId` or `paymentNumber`, joining user and institute information.
+
 ---
 
 ## 5. Developer Cheatsheet
